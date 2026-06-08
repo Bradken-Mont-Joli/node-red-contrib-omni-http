@@ -5,18 +5,16 @@ A professional Node-RED custom node that creates multiple HTTP endpoints trigger
 ## Features
 - **Consolidated Routing**: Manage multiple methods and paths (e.g., `GET /document`, `POST /document`, `DELETE /document/:_id`) inside a single node.
 - **Visual Integration**: Displays your system's `httpNodeRoot` prefix dynamically in the editor layout.
-- **Context & Property Injection**: Inject custom properties (`msg.any_key = value`) per endpoint on arrival, acting like a built-in *Inject* node for downstream routing.
-- **Smart Auto-Casting**: Automatically converts string values like `"true"`, `"false"`, or numbers into their native types, and evaluates valid JSON objects.
-
-## Install
-Run the following command in your Node-RED user directory (typically `~/.node-red`):
+- **Instance-Wide Global Properties**: Inject properties (`msg._model = "Document"`) globally to **all** endpoints in the node. Perfect for decoupling downstream subflows!
+- **Route-Specific Properties**: Inject custom variables per endpoint on arrival (acting like a built-in *Inject* node). Local properties automatically override global ones in case of key conflicts.
+- **Native Look & Feel**: Uses Node-RED's official `typedInput` widgets, offering full support for String, Number, Boolean, JSON, Flow, Global, Env, and Date types with a seamless responsive design.
 
 ```bash
 npm install @bkmj/node-red-contrib-omni-http
 ```
 
-## Usage
-1. Drag the omni http in node into your workspace.
-2. Add your endpoints by choosing an HTTP method and typing the URL.
-3. (Optional) Add a custom property to inject on receipt (e.g., set msg.target_model to "Document").
-4. Connect an http response node downstream to complete the requests.
+## Usage Example: Decoupling Subflows
+Instead of configuring environment variables on separate subflow instances (like an api or model subflow), you can inject architecture tokens directly at the edge:
+1. In the Global Variables section, add `msg._model` = `"Document"` and `msg._destroy` = `false`.
+2. Map your CRUD endpoints below (`GET /entities/document`, `POST /entities/document`, etc.).
+3. Connect your shared subflow directly to the output. It will automatically receive the correct model context regardless of which HTTP endpoint was triggered.

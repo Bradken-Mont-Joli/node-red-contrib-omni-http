@@ -4,6 +4,7 @@
         color: '#e7e7ae',
         defaults: {
             name: {value:""},
+            globalProps: {value: []}, // 🟢 NOUVEAU : Propriétés applicables à l'ensemble du noeud
             routes: {value: [{method:"get", url:"", props: []}]}
         },
         inputs:0, outputs:1, icon: "white-globe.svg",
@@ -20,18 +21,73 @@
             var root = RED.settings.httpNodeRoot || "/";
             if (root.slice(-1) !== "/") { root += "/"; }
 
-            // Matrice principale des Endpoints
-            $("#node-input-routes-container").css('min-height','300px').editableList({
+            // 🟢 FONCTION REUTILISABLE STYLE INJECT (ZÉRO BUG DE LARGEUR ET ENTIÈREMENT RESPONSIVE)
+            function buildPropertyRow(parentList, propData) {
+                var pData = propData || {key: "", val: "", type: "str"};
+                
+                var pRow = $('<div/>', {
+                    class: "node-input-route-prop-row", 
+                    style: "display: flex; align-items: center; gap: 5px; width: 100%; flex-wrap: nowrap; margin-bottom: 4px;"
+                }).appendTo(parentList);
+                
+                var msgFakeGroup = $('<div/>', {
+                    style: "display: inline-flex; align-items: stretch; flex: 3 1 140px; min-width: 0; box-sizing: border-box;"
+                }).appendTo(pRow);
+
+                var msgLabel = $('<div/>', {
+                    style: "border-radius: 4px 0 0 4px; pointer-events: none; font-family: var(--red-ui-primary-font); font-size: 14px; border: 1px solid var(--red-ui-form-input-border-color); border-right: none; box-sizing: border-box; background: var(--red-ui-form-button-background); height: 34px; line-height: 32px; padding: 0 3px 0 8px; color: var(--red-ui-form-text-color); white-space: nowrap; user-select: none; flex: 0 0 auto;"
+                }).appendTo(msgFakeGroup);
+                $('<span/>').text("msg.").appendTo(msgLabel);
+
+                var pKey = $('<input/>', {
+                    class: "node-input-prop-key", 
+                    type: "text", 
+                    placeholder: "payload",
+                    style: "flex: 1; min-width: 0; height: 34px; margin: 0; border-radius: 0 4px 4px 0; border: 1px solid var(--red-ui-form-input-border-color); box-sizing: border-box; padding: 0 8px; font-family: var(--red-ui-primary-font); font-size: 14px; color: var(--red-ui-form-text-color);"
+                }).val(pData.key).appendTo(msgFakeGroup);
+                
+                $('<span/>', {style: "color: #999; font-weight: bold; padding: 0 2px; user-select: none; flex: 0 0 auto;"}).text("=").appendTo(pRow);
+                
+                var pValWrapper = $('<div/>', {style: "flex: 7 1 200px; min-width: 0; display: flex;"}).appendTo(pRow);
+                var pVal = $('<input/>', {class: "node-input-prop-val", type: "text", style: "margin:0;"}).appendTo(pValWrapper);
+                
+                pVal.typedInput({
+                    default: pData.type || 'str',
+                    types: ['str','num','bool','json','date','env','flow','global']
+                });
+                pVal.typedInput('value', pData.val);
+
+                pVal.next(".red-ui-typedInput-container").css({ "width": "100%", "flex": "1", "min-width": "0" });
+
+                $('<button/>', {
+                    class: "red-ui-button red-ui-button-small",
+                    style: "border: none; background: transparent; color: #aaa; padding: 0 4px; margin-left: 2px; flex: 0 0 auto;",
+                    html: '<i class="fa fa-remove"></i>',
+                    click: function(e) { e.preventDefault(); pRow.remove(); }
+                }).appendTo(pRow);
+            }
+
+            // --- 🟢 SECTION A : INITIALISATION DES VARIABLES GLOBALES ---
+            $("#node-input-global-props-container").css('min-height','60px').editableList({
+                addItem: function(container, i, opt) {
+                    buildPropertyRow(container, opt);
+                },
+                removable: true, sortable: true
+            });
+            if (this.globalProps) {
+                this.globalProps.forEach(p => $("#node-input-global-props-container").editableList('addItem', p));
+            }
+
+            // --- SECTION B : INITIALISATION DE LA MATRICE DES ENDPOINTS ---
+            $("#node-input-routes-container").css('min-height','250px').editableList({
                 addItem: function(container, i, opt) {
                     var route = opt.hasOwnProperty('method') ? opt : {method:"get", url:"", props: []};
                     if (!route.props) route.props = [];
                     
-                    // Conteneur de ligne principal (Largeur restreinte pour laisser le bouton de suppression globale "X" dégagé)
                     var mainContainer = $('<div/>', {
-                        style: "display: flex; flex-direction: column; width: calc(100% - 35px); gap: 6px; padding: 2px 0; box-sizing: border-box;"
+                        style: "display: flex; flex-direction: column; width: calc(100% - 35px); gap: 4px; padding: 2px 0; box-sizing: border-box;"
                     }).appendTo(container);
                     
-                    // --- LIGNE 1 : METHODE + URL + BOUTON AJOUT VARIABLE ---
                     var row1 = $('<div/>', {style: "display: flex; align-items: center; width: 100%; gap: 5px; flex-wrap: nowrap;"}).appendTo(mainContainer);
                     
                     var select = $('<select/>',{class:"node-input-route-method", style:"width:90px; flex: 0 0 90px; margin:0;"}).appendTo(row1);
@@ -51,78 +107,19 @@
                         html: '<i class="fa fa-plus"></i> Variable'
                     }).appendTo(row1);
 
-                    // --- ZONE DES VARIABLES DES ENDPOINTS ---
                     var propsListContainer = $('<div/>', {
                         class: "node-input-route-props-list", 
-                        style: "display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-left: 12px; width: 100%; box-sizing: border-box;"
+                        style: "display: flex; flex-direction: column; gap: 0px; margin-top: 4px; padding-left: 12px; width: 100%; box-sizing: border-box;"
                     }).appendTo(mainContainer);
 
-                    // Générateur de ligne de propriété réactif (Look Inject 100% fidèle et fixe)
-                    function createPropertyRow(propData) {
-                        var pData = propData || {key: "payload", val: "", type: "str"};
-                        
-                        var pRow = $('<div/>', {
-                            class: "node-input-route-prop-row", 
-                            style: "display: flex; align-items: center; gap: 5px; width: 100%; flex-wrap: nowrap;"
-                        }).appendTo(propsListContainer);
-                        
-                        // 🟢 FUSION UNIQUE TYPE INJECT : Bloc conteneur du champ Clé "msg.clé"
-                        var msgFakeGroup = $('<div/>', {
-                            style: "display: inline-flex; align-items: stretch; flex: 3 1 140px; min-width: 0; box-sizing: border-box; vertical-align: middle;"
-                        }).appendTo(pRow);
-
-                        // Faux bouton inerte "msg." (Pas de survol, pas de clic, basé sur tes variables de thème)
-                        var msgLabel = $('<div/>', {
-                            style: "border-radius: 4px 0 0 4px; pointer-events: none; font-family: var(--red-ui-primary-font); font-size: 14px; font-weight: normal; text-align: left; border: 1px solid var(--red-ui-form-input-border-color); border-right: none; box-sizing: border-box; background: var(--red-ui-form-button-background); height: 34px; line-height: 32px; padding: 0 3px 0 8px; color: var(--red-ui-form-text-color); white-space: nowrap; user-select: none; flex: 0 0 auto;"
-                        }).appendTo(msgFakeGroup);
-                        $('<span/>').text("msg.").appendTo(msgLabel);
-
-                        // Champ textuel de saisie pour la Clé (Soudé au faux bouton msg.)
-                        var pKey = $('<input/>', {
-                            class: "node-input-prop-key", 
-                            type: "text", 
-                            placeholder: "payload",
-                            style: "flex: 1; min-width: 0; height: 34px; margin: 0; border-radius: 0 4px 4px 0; border: 1px solid var(--red-ui-form-input-border-color); box-sizing: border-box; padding: 0 8px; font-family: var(--red-ui-primary-font); font-size: 14px; color: var(--red-ui-form-text-color); background: var(--red-ui-form-input-background);"
-                        }).val(pData.key).appendTo(msgFakeGroup);
-                        
-                        // Séparateur "="
-                        $('<span/>', {style: "color: #999; font-weight: bold; padding: 0 2px; user-select: none; flex: 0 0 auto;"}).text("=").appendTo(pRow);
-                        
-                        // Conteneur de valeur élastique (Rapport de 7 pour s'étirer au maximum)
-                        var pValWrapper = $('<div/>', {style: "flex: 7 1 200px; min-width: 0; display: flex;"}).appendTo(pRow);
-                        var pVal = $('<input/>', {class: "node-input-prop-val", type: "text", style: "margin:0;"}).appendTo(pValWrapper);
-                        
-                        // Initialisation du TypedInput
-                        pVal.typedInput({
-                            default: pData.type || 'str',
-                            types: ['str','num','bool','json','date','env','flow','global']
-                        });
-                        pVal.typedInput('value', pData.val);
-
-                        // Force l'écrasement dynamique de la boîte à 123.5px générée par Node-RED
-                        pVal.next(".red-ui-typedInput-container").css({
-                            "width": "100%",
-                            "flex": "1",
-                            "min-width": "0"
-                        });
-
-                        // Bouton de suppression de ligne de variable individuel
-                        $('<button/>', {
-                            class: "red-ui-button red-ui-button-small",
-                            style: "border: none; background: transparent; color: #aaa; padding: 0 4px; margin-left: 2px; flex: 0 0 auto;",
-                            html: '<i class="fa fa-remove"></i>',
-                            click: function(e) { e.preventDefault(); pRow.remove(); }
-                        }).appendTo(pRow);
-                    }
-
-                    // Charger l'historique au chargement du nœud
+                    // Recharger les variables spécifiques à la route
                     if (route.props && route.props.length > 0) {
-                        route.props.forEach(p => createPropertyRow(p));
+                        route.props.forEach(p => buildPropertyRow(propsListContainer, p));
                     }
 
                     addPropBtn.on('click', function(e) {
                         e.preventDefault();
-                        createPropertyRow();
+                        buildPropertyRow(propsListContainer);
                     });
                 },
                 removable: true, sortable: true
@@ -132,26 +129,29 @@
         },
         oneditsave: function() {
             var node = this;
-            node.routes = [];
+            
+            // 🟢 SAUVEGARDE DES VARIABLES GLOBALES
+            node.globalProps = [];
+            $("#node-input-global-props-container").editableList('items').each(function() {
+                var k = $(this).find(".node-input-prop-key").val().trim();
+                var v = $(this).find(".node-input-prop-val").typedInput('value');
+                var t = $(this).find(".node-input-prop-val").typedInput('type');
+                if (k) node.globalProps.push({key: k, val: v, type: t});
+            });
 
-            $("#node-input-routes-container").editableList('items').each(function(i) {
+            // SAUVEGARDE DES ENDPOINTS
+            node.routes = [];
+            $("#node-input-routes-container").editableList('items').each(function() {
                 var method = $(this).find(".node-input-route-method").val();
                 var url = $(this).find(".node-input-route-url").val().trim();
                 
-                var routeObj = {
-                    method: method,
-                    url: url,
-                    props: []
-                };
+                var routeObj = { method: method, url: url, props: [] };
 
                 $(this).find(".node-input-route-prop-row").each(function() {
                     var k = $(this).find(".node-input-prop-key").val().trim();
                     var v = $(this).find(".node-input-prop-val").typedInput('value');
                     var t = $(this).find(".node-input-prop-val").typedInput('type');
-                    
-                    if (k) {
-                        routeObj.props.push({key: k, val: v, type: t});
-                    }
+                    if (k) routeObj.props.push({key: k, val: v, type: t});
                 });
                 
                 if (url) {
@@ -170,8 +170,12 @@
         <label for="node-input-name"><i class="fa fa-tag"></i> Nom</label>
         <input type="text" id="node-input-name" placeholder="Laisser vide pour calcul dynamique">
     </div>
+    <div class="form-row node-input-global-props-container-row" style="margin-bottom: 24px;">
+        <label style="width: 100%; font-weight: bold;"><i class="fa fa-globe"></i> Variables Globales (S'appliquent à tous les Endpoints)</label>
+        <ol id="node-input-global-props-container"></ol>
+    </div>
     <div class="form-row node-input-routes-container-row">
-        <label><i class="fa fa-list"></i> Matrice des Endpoints</label>
+        <label style="width: 100%; font-weight: bold;"><i class="fa fa-list"></i> Matrice des Endpoints Spécifiques</label>
         <ol id="node-input-routes-container"></ol>
     </div>
 </script>

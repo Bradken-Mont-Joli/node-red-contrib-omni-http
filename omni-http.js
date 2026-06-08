@@ -4,6 +4,7 @@ module.exports = function(RED) {
         RED.nodes.createNode(this, config);
         var node = this;
         this.routes = config.routes || [];
+        this.globalProps = config.globalProps || []; // 🟢 Capture de la configuration globale
         var app = RED.httpNode;
 
         this.routes.forEach(r => {
@@ -15,23 +16,32 @@ module.exports = function(RED) {
                 var routeCallback = function(req, res) {
                     var msg = {
                         req: req,
-                        res: { _res: res }, // Protection d'enveloppe anti-crash
+                        res: { _res: res }, // Protection anti-crash de structure Node-RED
                         payload: req.method === "GET" ? req.query : req.body,
                         topic: req.url,
                         method: req.method
                     };
 
-                    // 🟢 EVALUATION ET INJECTION EXACTE DES VARIABLES (STYLE INTERNE NODE-RED)
+                    // 🟢 ÉTAPE 1 : ENCLENCHEMENT DES INJECTIONS GLOBALES DE L'INSTANCE
+                    if (node.globalProps && Array.isArray(node.globalProps)) {
+                        node.globalProps.forEach(p => {
+                            try {
+                                let evaluatedVal = RED.util.evaluateNodeProperty(p.val, p.type, node, msg);
+                                RED.util.setMessageProperty(msg, p.key, evaluatedVal, true);
+                            } catch (err) {
+                                node.error("Erreur d'injection globale : " + err.message);
+                            }
+                        });
+                    }
+
+                    // 🟢 ÉTAPE 2 : ENCLENCHEMENT DES INJECTIONS SPÉCIFIQUES À LA ROUTE (OVERRIDE POTENTIEL)
                     if (r.props && Array.isArray(r.props)) {
                         r.props.forEach(p => {
                             try {
-                                // Résout la valeur selon son type (String, Number, Env, Flow, Global, etc.)
                                 let evaluatedVal = RED.util.evaluateNodeProperty(p.val, p.type, node, msg);
-                                
-                                // Écrit proprement la valeur dans le msg, gère le dot-notation (ex: payload.id)
                                 RED.util.setMessageProperty(msg, p.key, evaluatedVal, true);
                             } catch (err) {
-                                node.error("Erreur d'injection de variable : " + err.message);
+                                node.error("Erreur d'injection spécifique : " + err.message);
                             }
                         });
                     }
@@ -44,7 +54,7 @@ module.exports = function(RED) {
             }
         });
 
-        // Nettoyage de la pile Express au redéploiement
+        // Nettoyage au redéploiement
         this.on("close", function() {
             node.routes.forEach(r => {
                 const method = r.method ? r.method.toLowerCase() : null;
