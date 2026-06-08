@@ -8,9 +8,11 @@ module.exports = function(RED) {
 
         this.callback = function(req, res) {
             var msg = {
-                req: req, res: res,
+                req: req,
+                res: { _res: res }, // 🟢 RÈGLE LE CRASH : On l'enveloppe pour Node-RED
                 payload: req.method === "GET" ? req.query : req.body,
-                topic: req.url, method: req.method
+                topic: req.url, 
+                method: req.method
             };
             node.send(msg);
         };
