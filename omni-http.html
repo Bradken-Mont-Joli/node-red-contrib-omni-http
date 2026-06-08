@@ -26,7 +26,7 @@
                     var route = opt.hasOwnProperty('method') ? opt : {method:"get", url:"", props: []};
                     if (!route.props) route.props = [];
                     
-                    // Conteneur de ligne (Limité à 100% - 35px pour sanctuariser l'espace du bouton de suppression global)
+                    // Conteneur de ligne principal (Largeur restreinte pour laisser le bouton de suppression globale "X" dégagé)
                     var mainContainer = $('<div/>', {
                         style: "display: flex; flex-direction: column; width: calc(100% - 35px); gap: 6px; padding: 2px 0; box-sizing: border-box;"
                     }).appendTo(container);
@@ -57,7 +57,7 @@
                         style: "display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-left: 12px; width: 100%; box-sizing: border-box;"
                     }).appendTo(mainContainer);
 
-                    // Générateur de ligne de propriété réactif (Look Inject 100% élastique)
+                    // Générateur de ligne de propriété réactif (Look Inject 100% fidèle et fixe)
                     function createPropertyRow(propData) {
                         var pData = propData || {key: "payload", val: "", type: "str"};
                         
@@ -66,46 +66,47 @@
                             style: "display: flex; align-items: center; gap: 5px; width: 100%; flex-wrap: nowrap;"
                         }).appendTo(propsListContainer);
                         
-                        // 1. Le bouton statique "msg."
-                        var msgBtn = $('<button/>', {
-                            type: "button",
-                            class: "red-ui-typedInput-type-select disabled",
-                            tabindex: "-1",
-                            title: "msg.",
-                            style: "border-radius: 4px 0 0 4px; cursor: default; height: 34px; margin: 0; padding: 0 10px; background: #eee; border: 1px solid #ccc; border-right: none; color: #444; font-size: 13px; flex: 0 0 auto;"
+                        // 🟢 FUSION UNIQUE TYPE INJECT : Bloc conteneur du champ Clé "msg.clé"
+                        var msgFakeGroup = $('<div/>', {
+                            style: "display: inline-flex; align-items: stretch; flex: 3 1 140px; min-width: 0; box-sizing: border-box; vertical-align: middle;"
                         }).appendTo(pRow);
-                        $('<span/>', {class: "red-ui-typedInput-type-label"}).text("msg.").appendTo(msgBtn);
 
-                        // 2. Le champ Saisie de Clé (Élastique : prend un ratio de 3 sur l'espace)
+                        // Faux bouton inerte "msg." (Pas de survol, pas de clic, basé sur tes variables de thème)
+                        var msgLabel = $('<div/>', {
+                            style: "border-radius: 4px 0 0 4px; pointer-events: none; font-family: var(--red-ui-primary-font); font-size: 14px; font-weight: normal; text-align: left; border: 1px solid var(--red-ui-form-input-border-color); border-right: none; box-sizing: border-box; background: var(--red-ui-form-button-background); height: 34px; line-height: 32px; padding: 0 3px 0 8px; color: var(--red-ui-form-text-color); white-space: nowrap; user-select: none; flex: 0 0 auto;"
+                        }).appendTo(msgFakeGroup);
+                        $('<span/>').text("msg.").appendTo(msgLabel);
+
+                        // Champ textuel de saisie pour la Clé (Soudé au faux bouton msg.)
                         var pKey = $('<input/>', {
                             class: "node-input-prop-key", 
                             type: "text", 
                             placeholder: "payload",
-                            style: "flex: 3 1 120px; min-width: 0; height: 34px; margin: 0; border-radius: 0 4px 4px 0; border: 1px solid #ccc; box-sizing: border-box; padding: 0 8px;"
-                        }).val(pData.key).appendTo(pRow);
+                            style: "flex: 1; min-width: 0; height: 34px; margin: 0; border-radius: 0 4px 4px 0; border: 1px solid var(--red-ui-form-input-border-color); box-sizing: border-box; padding: 0 8px; font-family: var(--red-ui-primary-font); font-size: 14px; color: var(--red-ui-form-text-color); background: var(--red-ui-form-input-background);"
+                        }).val(pData.key).appendTo(msgFakeGroup);
                         
-                        // 3. Le séparateur "="
+                        // Séparateur "="
                         $('<span/>', {style: "color: #999; font-weight: bold; padding: 0 2px; user-select: none; flex: 0 0 auto;"}).text("=").appendTo(pRow);
                         
-                        // 4. Le conteneur de valeur (Élastique majeur : prend un ratio de 7 sur l'espace)
+                        // Conteneur de valeur élastique (Rapport de 7 pour s'étirer au maximum)
                         var pValWrapper = $('<div/>', {style: "flex: 7 1 200px; min-width: 0; display: flex;"}).appendTo(pRow);
                         var pVal = $('<input/>', {class: "node-input-prop-val", type: "text", style: "margin:0;"}).appendTo(pValWrapper);
                         
-                        // Initialisation native du sélecteur Node-RED
+                        // Initialisation du TypedInput
                         pVal.typedInput({
                             default: pData.type || 'str',
                             types: ['str','num','bool','json','date','env','flow','global']
                         });
                         pVal.typedInput('value', pData.val);
 
-                        // ✨ SÉCURITÉ RESIZING : On cible le conteneur généré par typedInput pour casser sa largeur fixe de 123.5px
+                        // Force l'écrasement dynamique de la boîte à 123.5px générée par Node-RED
                         pVal.next(".red-ui-typedInput-container").css({
                             "width": "100%",
                             "flex": "1",
                             "min-width": "0"
                         });
 
-                        // 5. Bouton d'effacement de la variable (Ancré à droite)
+                        // Bouton de suppression de ligne de variable individuel
                         $('<button/>', {
                             class: "red-ui-button red-ui-button-small",
                             style: "border: none; background: transparent; color: #aaa; padding: 0 4px; margin-left: 2px; flex: 0 0 auto;",
@@ -114,7 +115,7 @@
                         }).appendTo(pRow);
                     }
 
-                    // Recharger l'historique
+                    // Charger l'historique au chargement du nœud
                     if (route.props && route.props.length > 0) {
                         route.props.forEach(p => createPropertyRow(p));
                     }
