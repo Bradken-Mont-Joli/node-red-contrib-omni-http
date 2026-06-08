@@ -1,23 +1,26 @@
 {
     "name": "@bkmj/node-red-contrib-omni-http",
-    "version": "1.5.2",
+    "version": "1.5.3",
     "description": "A custom Node-RED node to handle multiple HTTP endpoints dynamically into a single flow.",
     "main": "omni-http.js",
     "scripts": {
-      "test": "echo \"Error: no test specified\" && exit 1"
+        "test": "echo \"Error: no test specified\" && exit 1"
     },
     "keywords": [
-      "node-red",
-      "http",
-      "api",
-      "endpoint",
-      "router"
+        "node-red",
+        "http",
+        "api",
+        "endpoint",
+        "router"
     ],
     "node-red": {
-      "nodes": {
-        "omni-http": "omni-http.js"
-      }
+        "nodes": {
+            "omni-http": "omni-http.js"
+        }
     },
     "author": "Marc-André Morneau <ma.morneau.1@gmail.com>",
-    "license": "MIT"
-  }
+    "license": "MIT",
+    "dependencies": {
+        "body-parser": "^2.2.2"
+    }
+}
