@@ -1,9 +1,10 @@
-const bodyParser = require("body-parser"); // 🟢 1. Appel du parseur natif de Node-RED
+const bodyParser = require("body-parser"); 
+const cors = require("cors"); // 🟢 1. Appel du module CORS (Garanti d'être présent car Node-RED en dépend)
 
 module.exports = function(RED) {
     "use strict";
 
-    // 🟢 2. Configuration des middlewares de parsing (limite à 10mb pour éviter les crashs)
+    // Configuration des middlewares de parsing (limite à 10mb pour éviter les crashs)
     const jsonParser = bodyParser.json({ limit: "10mb" });
     const urlencParser = bodyParser.urlencoded({ limit: "10mb", extended: true });
 
@@ -13,6 +14,12 @@ module.exports = function(RED) {
         this.routes = config.routes || [];
         this.globalProps = config.globalProps || []; 
         var app = RED.httpNode;
+
+        // 🟢 2. Récupération et initialisation du gestionnaire CORS officiel de Node-RED
+        var corsHandler = null;
+        if (RED.settings.httpNodeCors) {
+            corsHandler = cors(RED.settings.httpNodeCors);
+        }
 
         this.routes.forEach(r => {
             const method = r.method ? r.method.toLowerCase() : null;
@@ -24,7 +31,6 @@ module.exports = function(RED) {
                     var msg = {
                         req: req,
                         res: { _res: res },
-                        // 🟢 Le req.body sera maintenant parfaitement peuplé !
                         payload: req.method === "GET" ? req.query : req.body, 
                         topic: req.url,
                         method: req.method
@@ -57,8 +63,22 @@ module.exports = function(RED) {
                     node.send(msg);
                 };
 
-                // 🟢 3. On intercale les parseurs entre la route et le callback !
-                app[method](url, jsonParser, urlencParser, routeCallback);
+                // 🟢 3. Enregistrement de la route OPTIONS pour le Preflight CORS du navigateur
+                if (corsHandler && typeof app.options === 'function') {
+                    app.options(url, corsHandler);
+                }
+
+                // 🟢 4. Assemblage dynamique de la chaîne de middlewares
+                var routeMiddlewares = [];
+                if (corsHandler) {
+                    routeMiddlewares.push(corsHandler);
+                }
+                routeMiddlewares.push(jsonParser);
+                routeMiddlewares.push(urlencParser);
+                routeMiddlewares.push(routeCallback);
+
+                // Application de la route avec tous ses intercepteurs
+                app[method](url, ...routeMiddlewares);
                 
                 r.registeredCallback = routeCallback;
             }
@@ -68,11 +88,14 @@ module.exports = function(RED) {
             node.routes.forEach(r => {
                 const method = r.method ? r.method.toLowerCase() : null;
                 const url = r.url;
-                if (method && url && r.registeredCallback) {
+                if (method && url) {
+                    // 🟢 5. Nettoyage de la route principale ET de la route OPTIONS du routeur Express
                     for (var i = app._router.stack.length - 1; i >= 0; i--) {
                         var layer = app._router.stack[i];
-                        if (layer.route && layer.route.path === url && layer.route.methods[method]) {
-                            app._router.stack.splice(i, 1);
+                        if (layer.route && layer.route.path === url) {
+                            if (layer.route.methods[method] || layer.route.methods['options']) {
+                                app._router.stack.splice(i, 1);
+                            }
                         }
                     }
                 }
