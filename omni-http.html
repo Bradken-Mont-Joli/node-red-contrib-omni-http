@@ -63,8 +63,12 @@
                 var url = $(this).find(".node-input-route-url").val().trim();
                 
                 if (url) {
-                    // Sécurité : On s'assure que la route est stockée avec son slash initial en interne
-                    if (!url.startsWith('/')) url = '/' + url;
+                    // 🟢 PROTECTION : Enlève tous les slashes au début (^\/+) et à la fin (\/+$)
+                    url = url.replace(/^\/+|\/+$/g, '');
+                    
+                    // On reconstruit proprement avec UN SEUL slash initial obligatoire
+                    url = '/' + url;
+                    
                     node.routes.push({method: method, url: url});
                 }
             });
