@@ -1,10 +1,17 @@
+const bodyParser = require("body-parser"); // 🟢 1. Appel du parseur natif de Node-RED
+
 module.exports = function(RED) {
     "use strict";
+
+    // 🟢 2. Configuration des middlewares de parsing (limite à 10mb pour éviter les crashs)
+    const jsonParser = bodyParser.json({ limit: "10mb" });
+    const urlencParser = bodyParser.urlencoded({ limit: "10mb", extended: true });
+
     function OmniHttpNode(config) {
         RED.nodes.createNode(this, config);
         var node = this;
         this.routes = config.routes || [];
-        this.globalProps = config.globalProps || []; // 🟢 Capture de la configuration globale
+        this.globalProps = config.globalProps || []; 
         var app = RED.httpNode;
 
         this.routes.forEach(r => {
@@ -16,13 +23,14 @@ module.exports = function(RED) {
                 var routeCallback = function(req, res) {
                     var msg = {
                         req: req,
-                        res: { _res: res }, // Protection anti-crash de structure Node-RED
-                        payload: req.method === "GET" ? req.query : req.body,
+                        res: { _res: res },
+                        // 🟢 Le req.body sera maintenant parfaitement peuplé !
+                        payload: req.method === "GET" ? req.query : req.body, 
                         topic: req.url,
                         method: req.method
                     };
 
-                    // 🟢 ÉTAPE 1 : ENCLENCHEMENT DES INJECTIONS GLOBALES DE L'INSTANCE
+                    // Injections Globales
                     if (node.globalProps && Array.isArray(node.globalProps)) {
                         node.globalProps.forEach(p => {
                             try {
@@ -34,7 +42,7 @@ module.exports = function(RED) {
                         });
                     }
 
-                    // 🟢 ÉTAPE 2 : ENCLENCHEMENT DES INJECTIONS SPÉCIFIQUES À LA ROUTE (OVERRIDE POTENTIEL)
+                    // Injections Spécifiques
                     if (r.props && Array.isArray(r.props)) {
                         r.props.forEach(p => {
                             try {
@@ -49,12 +57,13 @@ module.exports = function(RED) {
                     node.send(msg);
                 };
 
-                app[method](url, routeCallback);
+                // 🟢 3. On intercale les parseurs entre la route et le callback !
+                app[method](url, jsonParser, urlencParser, routeCallback);
+                
                 r.registeredCallback = routeCallback;
             }
         });
 
-        // Nettoyage au redéploiement
         this.on("close", function() {
             node.routes.forEach(r => {
                 const method = r.method ? r.method.toLowerCase() : null;
