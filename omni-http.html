@@ -4,50 +4,55 @@
         color: '#e7e7ae',
         defaults: {
             name: {value:""},
-            routes: {value: [{method:"get", url:""}]}
+            routes: {value: [{method:"get", url:"", propKey:"", propVal:""}]}
         },
         inputs:0, outputs:1, icon: "white-globe.svg",
-        
-        // 🟢 DÉFINITION DU NOM PAR DÉFAUT DYNAMIQUE
         label: function() { 
             if (this.name) return this.name;
             if (this.routes && this.routes.length > 0) {
-                // Extrait les méthodes uniques (ex: ["GET", "POST"])
                 var methods = [...new Set(this.routes.map(r => r.method.toUpperCase()))];
                 var routeLabel = this.routes.length > 1 ? this.routes.length + " routes" : this.routes[0].url;
                 return "[" + methods.join("/") + "] " + routeLabel;
             }
             return "omni http in"; 
         },
-        
         oneditprepare: function() {
-            // 🟢 RÉCUPÉRATION DU ROOT API URL DU SERVEUR
             var root = RED.settings.httpNodeRoot || "/";
             if (root.slice(-1) !== "/") { root += "/"; }
 
-            // Création de l'interface dynamique (Tableau éditable)
-            $("#node-input-routes-container").css('min-height','250px').editableList({
+            $("#node-input-routes-container").css('min-height','300px').editableList({
                 addItem: function(container, i, opt) {
-                    var route = opt.hasOwnProperty('method') ? opt : {method:"get", url:""};
-                    var row = $('<div/>', {style: "display: flex; align-items: center; width: 100%; gap: 5px;"}).appendTo(container);
+                    var route = opt.hasOwnProperty('method') ? opt : {method:"get", url:"", propKey:"", propVal:""};
                     
-                    // Sélecteur de méthode
-                    var select = $('<select/>',{class:"node-input-route-method", style:"width:90px;"}).appendTo(row);
+                    // Conteneur principal vertical pour empiler la Route et sa Propriété custom
+                    var mainContainer = $('<div/>', {style: "display: flex; flex-direction: column; width: 100%; gap: 6px; padding: 4px 0;"}).appendTo(container);
+                    
+                    // --- LIGNE 1 : METHODE + URL ---
+                    var row1 = $('<div/>', {style: "display: flex; align-items: center; width: 100%; gap: 5px;"}).appendTo(mainContainer);
+                    
+                    var select = $('<select/>',{class:"node-input-route-method", style:"width:90px;"}).appendTo(row1);
                     ['get','post','put','delete','patch'].forEach(m => select.append($("<option></option>").val(m).text(m.toUpperCase())));
                     select.val(route.method);
 
-                    // 🟢 AFFICHAGE DU HTTP_NODE_ROOT EN PREFIXE
-                    $('<span/>', {
-                        style: "font-family: monospace; color: #888; font-size: 12px; white-space: nowrap; user-select: none;"
-                    }).text(root).appendTo(row);
+                    $('<span/>', {style: "font-family: monospace; color: #888; font-size: 12px; white-space: nowrap; user-select: none;"}).text(root).appendTo(row1);
 
-                    // Input du chemin (URL)
-                    var input = $('<input/>',{class:"node-input-route-url", type:"text", style:"flex: 1;", placeholder:"entities/document"}).appendTo(row);
-                    
-                    // Nettoyage esthétique : on enlève le slash de gauche s'il existe pour ne pas faire doublon avec le préfixe visuel
-                    var displayUrl = route.url;
+                    var inputUrl = $('<input/>',{class:"node-input-route-url", type:"text", style:"flex: 1;", placeholder:"entities/document"}).appendTo(row1);
+                    var displayUrl = route.url || "";
                     if (displayUrl.startsWith('/')) displayUrl = displayUrl.substring(1);
-                    input.val(displayUrl);
+                    inputUrl.val(displayUrl);
+
+                    // --- LIGNE 2 : INJECTION DE PROPRIÉTÉ (msg.key = value) ---
+                    var row2 = $('<div/>', {style: "display: flex; align-items: center; width: 100%; gap: 6px; padding-left: 15px;"}).appendTo(mainContainer);
+                    
+                    $('<span/>', {style: "font-family: monospace; color: #444; font-size: 12px; font-weight: bold; user-select: none;"}).text("msg.").appendTo(row2);
+                    
+                    var inputKey = $('<input/>',{class:"node-input-route-propkey", type:"text", style:"width: 140px;", placeholder:"payload, topic, etc."}).appendTo(row2);
+                    inputKey.val(route.propKey || "");
+                    
+                    $('<span/>', {style: "color: #666; font-weight: bold; user-select: none;"}).text("=").appendTo(row2);
+                    
+                    var inputVal = $('<input/>',{class:"node-input-route-propval", type:"text", style:"flex: 1;", placeholder:"valeur (texte, nombre, json...)"}).appendTo(row2);
+                    inputVal.val(route.propVal || "");
                 },
                 removable: true, sortable: true
             });
@@ -61,15 +66,18 @@
             $("#node-input-routes-container").editableList('items').each(function(i) {
                 var method = $(this).find(".node-input-route-method").val();
                 var url = $(this).find(".node-input-route-url").val().trim();
+                var propKey = $(this).find(".node-input-route-propkey").val().trim();
+                var propVal = $(this).find(".node-input-route-propval").val();
                 
                 if (url) {
-                    // 🟢 PROTECTION : Enlève tous les slashes au début (^\/+) et à la fin (\/+$)
                     url = url.replace(/^\/+|\/+$/g, '');
-                    
-                    // On reconstruit proprement avec UN SEUL slash initial obligatoire
                     url = '/' + url;
-                    
-                    node.routes.push({method: method, url: url});
+                    node.routes.push({
+                        method: method,
+                        url: url,
+                        propKey: propKey,
+                        propVal: propVal
+                    });
                 }
             });
         }
@@ -82,7 +90,7 @@
         <input type="text" id="node-input-name" placeholder="Laisser vide pour calcul dynamique">
     </div>
     <div class="form-row node-input-routes-container-row">
-        <label><i class="fa fa-list"></i> Endpoints de l'API</label>
+        <label><i class="fa fa-list"></i> Matrice des Endpoints & Variables</label>
         <ol id="node-input-routes-container"></ol>
     </div>
 </script>

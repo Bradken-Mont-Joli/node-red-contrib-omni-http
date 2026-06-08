@@ -1,20 +1,22 @@
-Creates multiple HTTP endpoints that trigger a single flow.
+Creates multiple HTTP endpoints that trigger a single flow with dynamic context injection.
 
 ### Outputs
 
 1. Standard Output
-: payload (object | string) : For GET/DELETE requests, contains an object of the query string parameters. For POST/PUT/PATCH requests, contains the parsed body of the request.
+: payload (object | string) : For GET/DELETE requests, contains an object of the query parameters. For POST/PUT requests, contains the parsed body.
 : req (object) : The Express HTTP request object.
-: res (object) : The Express HTTP response object.
+: res (object) : The Express HTTP response object (wrapped inside `{ _res: res }` for native compatibility).
 : method (string) : The HTTP method of the request (e.g., GET, POST).
 : topic (string) : The URL path of the request.
+: [custom property] (any) : Any custom key/value pair defined in the route matrix will be appended to the `msg` object.
 
 ### Details
 
-The `omni http in` node allows you to consolidate multiple standard `http in` nodes into a single, clean node. This is highly useful when building REST APIs where multiple methods and paths (e.g., `GET /api/item`, `POST /api/item`, and `PUT /api/item/:id`) need to be routed to the same core processing flow.
+The `omni http in` node allows you to consolidate multiple standard `http in` nodes into a single router. This is ideal for REST APIs where multiple methods and paths need to be channeled into the same processing architecture (like a unified data model subflow).
 
 #### Configuration
-Use the **Endpoints** list in the node's properties to add as many routes as you need. For each endpoint, select the HTTP **Method** and define the **URL** (e.g., `/entities/document/:_id`).
+- **Endpoints Matrix**: Add as many routes as needed. Slashes at the beginning or end of URLs are automatically cleaned and structured.
+- **Property Injection**: For each endpoint, you can dynamically assign a variable to the `msg` object (e.g., `msg.action = "fetch"`). Numbers, booleans, and JSON strings are automatically parsed into their correct JavaScript types.
 
 #### Responding
-**Note:** Just like the standard `http in` node, this node only receives the request and does not send a response back to the client. You **must** connect an `http response` node somewhere downstream in your flow to complete the request and prevent the client from timing out.
+**Important:** This node only captures incoming requests. You **must** include a native `http response` node downstream to close the request loop and prevent client timeouts.
