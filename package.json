@@ -1,6 +1,6 @@
 {
     "name": "@bkmj/node-red-contrib-omni-http",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "A custom Node-RED node to handle multiple HTTP endpoints dynamically into a single flow.",
     "main": "omni-http.js",
     "scripts": {
