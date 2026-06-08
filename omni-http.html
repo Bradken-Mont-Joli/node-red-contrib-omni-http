@@ -4,7 +4,7 @@
         color: '#e7e7ae',
         defaults: {
             name: {value:""},
-            routes: {value: [{method:"get", url:"", props: []}]} // 🟢 Évolution de la structure vers un tableau de propriétés
+            routes: {value: [{method:"get", url:"", props: []}]}
         },
         inputs:0, outputs:1, icon: "white-globe.svg",
         label: function() { 
@@ -20,16 +20,18 @@
             var root = RED.settings.httpNodeRoot || "/";
             if (root.slice(-1) !== "/") { root += "/"; }
 
-            // Interface principale des Endpoints
+            // Liste principale des endpoints
             $("#node-input-routes-container").css('min-height','300px').editableList({
                 addItem: function(container, i, opt) {
                     var route = opt.hasOwnProperty('method') ? opt : {method:"get", url:"", props: []};
                     if (!route.props) route.props = [];
                     
-                    // 🟢 FIX : Largeur restreinte à calc(100% - 35px) pour ne plus jamais empiéter sur le bouton "X" global
-                    var mainContainer = $('<div/>', {style: "display: inline-flex; flex-direction: column; width: calc(100% - 35px); gap: 6px; padding: 4px 0; vertical-align: top;"}).appendTo(container);
+                    // Conteneur principal (Limité à 100% - 35px pour laisser le "X" de suppression totalement dégagé)
+                    var mainContainer = $('<div/>', {
+                        style: "display: inline-flex; flex-direction: column; width: calc(100% - 35px); gap: 4px; padding: 2px 0; vertical-align: top;"
+                    }).appendTo(container);
                     
-                    // --- LIGNE 1 : METHODE + URL + BOUTON CONFIG ---
+                    // --- LIGNE 1 : METHODE + URL + BOUTON AJOUT VARIABLE ---
                     var row1 = $('<div/>', {style: "display: flex; align-items: center; width: 100%; gap: 5px;"}).appendTo(mainContainer);
                     
                     var select = $('<select/>',{class:"node-input-route-method", style:"width:90px; margin:0;"}).appendTo(row1);
@@ -43,73 +45,67 @@
                     if (displayUrl.startsWith('/')) displayUrl = displayUrl.substring(1);
                     inputUrl.val(displayUrl);
 
-                    // 🟢 BOUTON TOGGLE (Masqué par défaut)
-                    var toggleBtn = $('<button/>', {
-                        class: "red-ui-button red-ui-button-small",
-                        style: "margin-left: 5px; white-space: nowrap;",
-                        html: '<i class="fa fa-cog"></i> Variables'
-                    }).appendTo(row1);
-
-                    // --- PANNEAU DES VARIABLES (Masqué par défaut) ---
-                    var propsPanel = $('<div/>', {
-                        class: "node-input-route-props-panel",
-                        style: "display: none; margin-top: 8px; border: 1px dashed #ddd; padding: 10px; border-radius: 4px; background: #fcfcfc;"
-                    }).appendTo(mainContainer);
-
-                    // Entête du panneau avec bouton d'ajout de sous-variable
-                    var panelHeader = $('<div/>', {style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"}).appendTo(propsPanel);
-                    $('<span/>', {style: "font-size: 11px; font-weight: bold; color: #666;"}).text("PROPRIÉTÉS INJECTÉES SUR RÉCEPTION :").appendTo(panelHeader);
-                    
+                    // Bouton discret style Inject "+ Variable"
                     var addPropBtn = $('<button/>', {
                         class: "red-ui-button red-ui-button-small",
-                        html: '<i class="fa fa-plus"></i> Ajouter'
-                    }).appendTo(panelHeader);
+                        style: "margin-left: 5px; white-space: nowrap; color: #555;",
+                        html: '<i class="fa fa-plus"></i> Variable'
+                    }).appendTo(row1);
 
-                    var propsListContainer = $('<div/>', {class: "node-input-route-props-list", style: "display: flex; flex-direction: column; gap: 4px;"}).appendTo(propsPanel);
+                    // --- ZONE DES VARIABLES (Masquée si vide) ---
+                    var propsListContainer = $('<div/>', {
+                        class: "node-input-route-props-list", 
+                        style: "display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-left: 10px;"
+                    }).appendTo(mainContainer);
 
-                    // Fonction d'ajout d'une ligne de propriété (Style nœud Inject)
-                    function addPropertyRow(propData) {
+                    // Fonction interne pour générer une ligne de propriété identique au noeud Inject
+                    function createPropertyRow(propData) {
                         var pData = propData || {key: "payload", val: "", type: "str"};
-                        var pRow = $('<div/>', {class: "node-input-route-prop-row", style: "display: flex; align-items: center; gap: 5px; width: 100%;"}).appendTo(propsListContainer);
                         
-                        $('<span/>', {style: "font-family: monospace; color: #444; font-size: 11px;"}).text("msg.").appendTo(pRow);
+                        var pRow = $('<div/>', {
+                            class: "node-input-route-prop-row", 
+                            style: "display: flex; align-items: center; gap: 5px; width: 100%;"
+                        }).appendTo(propsListContainer);
                         
-                        var pKey = $('<input/>', {class: "node-input-prop-key", type: "text", style: "width: 120px; margin:0;", placeholder: "payload"}).val(pData.key).appendTo(pRow);
-                        $('<span/>', {style: "color: #999;"}).text("=").appendTo(pRow);
+                        // Préfixe msg.
+                        $('<span/>', {style: "font-family: monospace; color: #444; font-size: 12px; font-weight: bold; user-select: none;"}).text("msg.").appendTo(pRow);
                         
-                        var pVal = $('<input/>', {class: "node-input-prop-val", type: "text", style: "flex: 1; margin:0;"}).appendTo(pRow);
+                        // Champ Clé
+                        var pKey = $('<input/>', {class: "node-input-prop-key", type: "text", style: "width: 130px; margin:0;", placeholder: "payload"}).val(pData.key).appendTo(pRow);
                         
-                        // 🟢 INITIALISATION DU TYPEDINPUT NATIF DE NODE-RED
+                        // Séparateur "="
+                        $('<span/>', {style: "color: #999; font-weight: bold; padding: 0 2px; user-select: none;"}).text("=").appendTo(pRow);
+                        
+                        // Conteneur de Valeur Flex (Empêche l'écrasement à 14px)
+                        var pValWrapper = $('<div/>', {style: "flex: 1; display: flex;"}).appendTo(pRow);
+                        var pVal = $('<input/>', {class: "node-input-prop-val", type: "text", style: "margin:0;"}).appendTo(pValWrapper);
+                        
+                        // Initialisation du TypedInput natif avec forçage de largeur CSS interne
                         pVal.typedInput({
                             default: pData.type || 'str',
-                            types: ['str','num','bool','json','date','env','flow','global']
+                            types: ['str','num','bool','json','date','env','flow','global'],
+                            width: '100%' // ✨ LA CLÉ DU SUCCÈS : Force Node-RED à étirer le widget au max sans calcul de pixel statique
                         });
                         pVal.typedInput('value', pData.val);
 
-                        // Bouton de suppression de la sous-variable
-                        var delPropBtn = $('<button/>', {
+                        // Petit bouton de suppression de la ligne de variable
+                        $('<button/>', {
                             class: "red-ui-button red-ui-button-small",
-                            style: "border: none; background: transparent; color: #999;",
-                            html: '<i class="fa fa-trash"></i>',
+                            style: "border: none; background: transparent; color: #aaa; padding: 0 4px; margin-left: 2px;",
+                            html: '<i class="fa fa-remove"></i>',
                             click: function(e) { e.preventDefault(); pRow.remove(); }
                         }).appendTo(pRow);
                     }
 
-                    // Charger les variables existantes
+                    // Charger les variables existantes à l'ouverture
                     if (route.props && route.props.length > 0) {
-                        route.props.forEach(p => addPropertyRow(p));
-                        propsPanel.show(); // Si des variables existent, on montre le panneau à l'ouverture
+                        route.props.forEach(p => createPropertyRow(p));
                     }
 
-                    // Événements des boutons
-                    toggleBtn.on('click', function(e) {
-                        e.preventDefault();
-                        propsPanel.toggle();
-                    });
-
+                    // Événement d'ajout lors du clic sur le bouton "+ Variable"
                     addPropBtn.on('click', function(e) {
                         e.preventDefault();
-                        addPropertyRow();
+                        createPropertyRow();
                     });
                 },
                 removable: true, sortable: true
@@ -131,7 +127,7 @@
                     props: []
                 };
 
-                // Extraction de toutes les sous-propriétés configurées pour cette ligne
+                // Extraction des sous-propriétés
                 $(this).find(".node-input-route-prop-row").each(function() {
                     var k = $(this).find(".node-input-prop-key").val().trim();
                     var v = $(this).find(".node-input-prop-val").typedInput('value');
@@ -159,7 +155,7 @@
         <input type="text" id="node-input-name" placeholder="Laisser vide pour calcul dynamique">
     </div>
     <div class="form-row node-input-routes-container-row">
-        <label><i class="fa fa-list"></i> Matrice des Endpoints & Contextes</label>
+        <label><i class="fa fa-list"></i> Matrice des Endpoints</label>
         <ol id="node-input-routes-container"></ol>
     </div>
 </script>
