@@ -26,7 +26,7 @@
                     var route = opt.hasOwnProperty('method') ? opt : {method:"get", url:"", props: []};
                     if (!route.props) route.props = [];
                     
-                    // 🟢 FIX RESPONSIVE : display: flex block-level avec largeur calculée propre
+                    // Conteneur de ligne (Limité à 100% - 35px pour sanctuariser l'espace du bouton de suppression global)
                     var mainContainer = $('<div/>', {
                         style: "display: flex; flex-direction: column; width: calc(100% - 35px); gap: 6px; padding: 2px 0; box-sizing: border-box;"
                     }).appendTo(container);
@@ -40,26 +40,24 @@
 
                     $('<span/>', {style: "font-family: monospace; color: #888; font-size: 12px; white-space: nowrap; user-select: none; flex: 0 0 auto;"}).text(root).appendTo(row1);
 
-                    // 🟢 FIX LARGEUR : min-width: 0 permet au champ de se contracter sans pousser le reste hors-champ
                     var inputUrl = $('<input/>',{class:"node-input-route-url", type:"text", style:"flex: 1; min-width: 0; margin:0;", placeholder:"entities/document"}).appendTo(row1);
                     var displayUrl = route.url || "";
                     if (displayUrl.startsWith('/')) displayUrl = displayUrl.substring(1);
                     inputUrl.val(displayUrl);
 
-                    // Bouton style Inject "+ Variable"
                     var addPropBtn = $('<button/>', {
                         class: "red-ui-button red-ui-button-small",
                         style: "margin-left: 5px; white-space: nowrap; color: #555; flex: 0 0 auto;",
                         html: '<i class="fa fa-plus"></i> Variable'
                     }).appendTo(row1);
 
-                    // --- ZONE DES VARIABLES ---
+                    // --- ZONE DES VARIABLES DES ENDPOINTS ---
                     var propsListContainer = $('<div/>', {
                         class: "node-input-route-props-list", 
                         style: "display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-left: 12px; width: 100%; box-sizing: border-box;"
                     }).appendTo(mainContainer);
 
-                    // Générateur de ligne de propriété (Look & Feel 100% Inject original)
+                    // Générateur de ligne de propriété réactif (Look Inject 100% élastique)
                     function createPropertyRow(propData) {
                         var pData = propData || {key: "payload", val: "", type: "str"};
                         
@@ -68,43 +66,46 @@
                             style: "display: flex; align-items: center; gap: 5px; width: 100%; flex-wrap: nowrap;"
                         }).appendTo(propsListContainer);
                         
-                        // 🟢 LOOK INJECT : Bloc fusionné "msg. [champ textuel]"
-                        var msgFakeGroup = $('<div/>', {
-                            style: "display: inline-flex; align-items: center; flex: 0 0 auto;"
-                        }).appendTo(pRow);
-
-                        // Bouton de type désactivé natif
+                        // 1. Le bouton statique "msg."
                         var msgBtn = $('<button/>', {
                             type: "button",
                             class: "red-ui-typedInput-type-select disabled",
                             tabindex: "-1",
                             title: "msg.",
-                            style: "border-radius: 4px 0 0 4px; cursor: default; height: 34px; margin: 0; padding: 0 10px; background: #eee; border: 1px solid #ccc; border-right: none; color: #444; font-size: 13px;"
-                        }).appendTo(msgFakeGroup);
+                            style: "border-radius: 4px 0 0 4px; cursor: default; height: 34px; margin: 0; padding: 0 10px; background: #eee; border: 1px solid #ccc; border-right: none; color: #444; font-size: 13px; flex: 0 0 auto;"
+                        }).appendTo(pRow);
                         $('<span/>', {class: "red-ui-typedInput-type-label"}).text("msg.").appendTo(msgBtn);
 
-                        // Champ de saisie de la clé fusionné au bouton
+                        // 2. Le champ Saisie de Clé (Élastique : prend un ratio de 3 sur l'espace)
                         var pKey = $('<input/>', {
                             class: "node-input-prop-key", 
                             type: "text", 
-                            style: "width: 120px; height: 34px; margin: 0; border-radius: 0 4px 4px 0; border: 1px solid #ccc; box-sizing: border-box; padding: 0 8px;"
-                        }).val(pData.key).appendTo(msgFakeGroup);
+                            placeholder: "payload",
+                            style: "flex: 3 1 120px; min-width: 0; height: 34px; margin: 0; border-radius: 0 4px 4px 0; border: 1px solid #ccc; box-sizing: border-box; padding: 0 8px;"
+                        }).val(pData.key).appendTo(pRow);
                         
-                        // Séparateur "="
+                        // 3. Le séparateur "="
                         $('<span/>', {style: "color: #999; font-weight: bold; padding: 0 2px; user-select: none; flex: 0 0 auto;"}).text("=").appendTo(pRow);
                         
-                        // 🟢 FIX ÉCRASEMENT 14PX : Conteneur flex avec min-width: 0 obligatoire pour stabiliser le typedInput
-                        var pValWrapper = $('<div/>', {style: "flex: 1; min-width: 0; display: flex;"}).appendTo(pRow);
+                        // 4. Le conteneur de valeur (Élastique majeur : prend un ratio de 7 sur l'espace)
+                        var pValWrapper = $('<div/>', {style: "flex: 7 1 200px; min-width: 0; display: flex;"}).appendTo(pRow);
                         var pVal = $('<input/>', {class: "node-input-prop-val", type: "text", style: "margin:0;"}).appendTo(pValWrapper);
                         
+                        // Initialisation native du sélecteur Node-RED
                         pVal.typedInput({
                             default: pData.type || 'str',
-                            types: ['str','num','bool','json','date','env','flow','global'],
-                            width: '100%' 
+                            types: ['str','num','bool','json','date','env','flow','global']
                         });
                         pVal.typedInput('value', pData.val);
 
-                        // Bouton de suppression de la variable ancré de manière immuable à droite
+                        // ✨ SÉCURITÉ RESIZING : On cible le conteneur généré par typedInput pour casser sa largeur fixe de 123.5px
+                        pVal.next(".red-ui-typedInput-container").css({
+                            "width": "100%",
+                            "flex": "1",
+                            "min-width": "0"
+                        });
+
+                        // 5. Bouton d'effacement de la variable (Ancré à droite)
                         $('<button/>', {
                             class: "red-ui-button red-ui-button-small",
                             style: "border: none; background: transparent; color: #aaa; padding: 0 4px; margin-left: 2px; flex: 0 0 auto;",
@@ -113,7 +114,7 @@
                         }).appendTo(pRow);
                     }
 
-                    // Recharger les lignes existantes
+                    // Recharger l'historique
                     if (route.props && route.props.length > 0) {
                         route.props.forEach(p => createPropertyRow(p));
                     }
