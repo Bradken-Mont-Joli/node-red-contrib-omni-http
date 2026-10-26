@@ -202,9 +202,11 @@
         color: '#e7e7ae',
         defaults: {
             name: {value: ""},
-            links: {type:"[]"}, // Pour l'enregistrement statique optionnel si besoin futur
+            links: {value: []},
             linkType: {value: "dynamic"},
-            timeout: {value: 30, validate: RED.validators.number()}
+            timeout: {value: 30, validate: RED.validators.number()},
+            showStatus: {value: true},
+            showDuration: {value: true}
         },
         inputs: 1,
         outputs: 1,
@@ -212,6 +214,37 @@
         paletteLabel: "omni link call",
         label: function() {
             return this.name || "omni link call";
+        },
+        oneditprepare: function() {
+            var node = this;
+
+            $("#node-input-linkType").on("change", function() {
+                if (this.value === "static") {
+                    $("#node-row-static-links").show();
+                } else {
+                    $("#node-row-static-links").hide();
+                }
+            });
+
+            var select = $("#node-input-static-target");
+            RED.nodes.eachNode(function(n) {
+                if (n.type === "link in" || (n.type === "omni-http" && n.actAsLinkIn)) {
+                    var label = n.name || n.url || n.id;
+                    var typeLabel = n.type === "omni-http" ? "omni-http" : "link in";
+                    select.append($("<option></option>").val(n.id).text(`[${typeLabel}] ${label}`));
+                }
+            });
+
+            if (node.links && node.links.length > 0) {
+                select.val(node.links[0]);
+            }
+        },
+        oneditsave: function() {
+            if ($("#node-input-linkType").val() === "static") {
+                this.links = [$("#node-input-static-target").val()];
+            } else {
+                this.links = [];
+            }
         }
     });
 </script>
@@ -262,16 +295,32 @@
     </div>
     <div class="form-row">
         <label for="node-input-linkType"><i class="fa fa-random"></i> Type de lien</label>
-        <select id="node-input-linkType">
+        <select id="node-input-linkType" style="width: 70%;">
             <option value="dynamic">Dynamique (msg.target, msg.url, msg.topic)</option>
+            <option value="static">Statique (Cible fixe)</option>
         </select>
+    </div>
+    <div class="form-row" id="node-row-static-links" style="display:none;">
+        <label for="node-input-static-target"><i class="fa fa-crosshairs"></i> Nœud Cible</label>
+        <select id="node-input-static-target" style="width: 70%;"></select>
     </div>
     <div class="form-row">
         <label for="node-input-timeout"><i class="fa fa-clock-o"></i> Timeout (s)</label>
-        <input type="text" id="node-input-timeout" placeholder="30">
+        <input type="text" id="node-input-timeout" placeholder="30" style="width: 70%;">
     </div>
-    <div class="form-tips">
-        <b>Astuce :</b> Ce nœud interroge tout l'espace de travail. Il déclenchera l'événement de réception du nœud <code>link in</code> ou <code>omni-http</code> dont le nom correspond à la valeur définie dans <code>msg.target</code>.
+    <hr>
+    <div class="form-row">
+        <label for="node-input-showStatus"><i class="fa fa-eye"></i> Statut de retour</label>
+        <input type="checkbox" id="node-input-showStatus" style="display: inline-block; width: auto; vertical-align: top;">
+        <span style="margin-left: 6px;">Afficher le code de statut (ex: Code 200)</span>
+    </div>
+    <div class="form-row">
+        <label for="node-input-showDuration"><i class="fa fa-clock-o"></i> Temps d'exécution</label>
+        <input type="checkbox" id="node-input-showDuration" style="display: inline-block; width: auto; vertical-align: top;">
+        <span style="margin-left: 6px;">Afficher la durée d'exécution en millisecondes</span>
+    </div>
+    <div class="form-tips" style="margin-top: 12px;">
+        <b>Astuce :</b> En mode Dynamique, le nœud interroge tout l'espace de travail pour trouver le nœud <code>link in</code> ou <code>omni-http</code> correspondant à <code>msg.target</code>. En mode Statique, le lien est figé comme un nœud natif.
     </div>
 </script>
 

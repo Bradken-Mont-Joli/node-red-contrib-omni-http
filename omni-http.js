@@ -35,9 +35,7 @@ module.exports = function(RED) {
     function normalizeIncomingUrl(rawUrl) {
         if (!rawUrl || typeof rawUrl !== "string") return { pathname: "", query: {} };
         let cleaned = rawUrl.trim();
-        // Retire protocole + host éventuel
         cleaned = cleaned.replace(/^https?:\/\/[^\/]+/i, "");
-        // Retire le préfixe httpNodeRoot (ex: /api) s'il est spécifié
         const root = (RED.settings.httpNodeRoot || "/").replace(/\/+$/, "");
         if (root && root !== "" && cleaned.toLowerCase().startsWith(root.toLowerCase() + "/")) {
             cleaned = cleaned.substring(root.length);
@@ -89,13 +87,11 @@ module.exports = function(RED) {
             }
         }
 
-        // 1. Enregistrement des routes Express HTTP
         this.routes.forEach(r => {
             const method = r.method ? r.method.toLowerCase() : null;
             const url = r.url;
 
             if (method && url && typeof app[method] === 'function') {
-                
                 var routeCallback = function(req, res) {
                     var msg = {
                         req: req,
@@ -104,7 +100,6 @@ module.exports = function(RED) {
                         topic: req.url,
                         method: req.method
                     };
-
                     injectProperties(msg, r);
                     node.send(msg);
                 };
@@ -114,9 +109,7 @@ module.exports = function(RED) {
                 }
 
                 var routeMiddlewares = [];
-                if (corsHandler) {
-                    routeMiddlewares.push(corsHandler);
-                }
+                if (corsHandler) routeMiddlewares.push(corsHandler);
                 routeMiddlewares.push(jsonParser);
                 routeMiddlewares.push(urlencParser);
                 routeMiddlewares.push(routeCallback);
@@ -126,7 +119,6 @@ module.exports = function(RED) {
             }
         });
 
-        // 2. Mode "Act as Link In" (Appels internes via Link Call)
         if (this.actAsLinkIn) {
             this.on("input", function(msg, send, done) {
                 try {
@@ -174,7 +166,6 @@ module.exports = function(RED) {
                     msg.method = reqMethod;
                     msg.topic = msg.req.url;
 
-                    // Intercepteur virtuel pour fermeture automatique si routé vers un nœud http response classique
                     let responseDispatched = false;
                     const returnToLinkCaller = function(finalPayload) {
                         if (responseDispatched) return;
@@ -188,9 +179,11 @@ module.exports = function(RED) {
 
                         if (Array.isArray(msg._linkSource) && msg._linkSource.length > 0) {
                             const linkInfo = msg._linkSource.pop();
-                            const callerNode = RED.nodes.getNode(linkInfo.node);
+                            // 🟢 Compatibilité avec le format natif
+                            const callerNode = RED.nodes.getNode(linkInfo.id || linkInfo.node);
                             if (callerNode && typeof callerNode.returnLinkMessage === "function") {
-                                callerNode.returnLinkMessage(msg);
+                                // 🟢 Support double signature
+                                callerNode.returnLinkMessage(linkInfo.msgId || msg._msgid, msg);
                             }
                         }
                     };
@@ -296,7 +289,8 @@ module.exports = function(RED) {
                     delete msg.res;
 
                     const linkInfo = msg._linkSource.pop();
-                    const callerNode = RED.nodes.getNode(linkInfo.node);
+                    // 🟢 Compatibilité avec link call natif
+                    const callerNode = RED.nodes.getNode(linkInfo.id || linkInfo.node);
 
                     if (callerNode && typeof callerNode.returnLinkMessage === "function") {
                         if (node.showStatus) {
@@ -306,9 +300,10 @@ module.exports = function(RED) {
                                 text: `Link ${code}${durationTxt}`
                             });
                         }
-                        callerNode.returnLinkMessage(msg);
+                        // 🟢 Support double signature Node-RED 3+ (sourceMsgId, msg)
+                        callerNode.returnLinkMessage(linkInfo.msgId || msg._msgid, msg);
                     } else {
-                        node.warn(`[omni-reply] Nœud Link Call appelant introuvable (${linkInfo.node})`);
+                        node.warn(`[omni-reply] Nœud Link Call appelant introuvable (${linkInfo.node || linkInfo.id})`);
                     }
 
                     send(msg);
@@ -322,7 +317,6 @@ module.exports = function(RED) {
                 const res = msg.res?._res || msg.res;
 
                 if (msg.req && res && typeof res.status === "function") {
-                    // Protection native contre [ERR_HTTP_HEADERS_SENT]
                     if (res.headersSent || msg.res.headersSent) {
                         node.warn("[omni-reply] Headers already sent, dropping duplicate HTTP response.");
                         delete msg.req;
@@ -331,7 +325,6 @@ module.exports = function(RED) {
                         return;
                     }
 
-                    // 1. Application des en-têtes
                     const combinedHeaders = Object.assign({}, node.headers, msg.headers || {});
                     Object.keys(combinedHeaders).forEach(hKey => {
                         if (combinedHeaders[hKey] !== undefined && combinedHeaders[hKey] !== null) {
@@ -339,7 +332,6 @@ module.exports = function(RED) {
                         }
                     });
 
-                    // 2. Application des cookies
                     if (msg.cookies && typeof msg.cookies === "object") {
                         Object.keys(msg.cookies).forEach(cName => {
                             const cVal = msg.cookies[cName];
@@ -353,7 +345,6 @@ module.exports = function(RED) {
                         });
                     }
 
-                    // 3. Émission selon le code et le type de payload
                     res.status(code);
 
                     if (code === 204 || msg.payload === null || msg.payload === undefined) {
@@ -374,7 +365,6 @@ module.exports = function(RED) {
                         });
                     }
 
-                    // 4. Nettoyage mémoire anti-fuite de sockets
                     delete msg.req;
                     delete msg.res;
 
@@ -383,9 +373,6 @@ module.exports = function(RED) {
                     return;
                 }
 
-                // -----------------------------------------------------------------
-                // 🧹 CAS 3 : PAYLOAD NON HTTP (Message résiduel ou Test)
-                // -----------------------------------------------------------------
                 delete msg.req;
                 delete msg.res;
                 send(msg);
@@ -407,43 +394,97 @@ module.exports = function(RED) {
     function OmniLinkCallNode(config) {
         RED.nodes.createNode(this, config);
         var node = this;
-        this.timeout = config.timeout || 30; // Timeout par défaut de 30 secondes
-        this.linkType = config.linkType || "static";
-        this.links = config.links || []; // IDs des nœuds cibles statiques
+        this.timeout = config.timeout || 30; 
+        this.linkType = config.linkType || "dynamic";
+        this.links = config.links || []; 
+        this.showStatus = config.showStatus !== false; 
+        this.showDuration = config.showDuration !== false;
 
-        // Stockage des callbacks en attente (clés par _msgid)
         node.activeCalls = {};
 
-        // Méthode publique exposée pour que omni-reply ou un nœud Return natif puisse refermer la boucle
-        this.returnLinkMessage = function(msg) {
-            var msgId = msg._msgid;
+        // 🟢 UTILITAIRE DE STATUT UI
+        const updateUiStatus = (code, durationMs, isError = false, errMsg = "") => {
+            if (!node.showStatus && !node.showDuration && !isError) {
+                node.status({});
+                return;
+            }
+            if (isError) {
+                node.status({ fill: "red", shape: "dot", text: errMsg });
+                return;
+            }
+            
+            let txtParts = [];
+            if (node.showStatus) {
+                txtParts.push(`Code ${code}`);
+            }
+            if (node.showDuration && durationMs !== null) {
+                txtParts.push(`${durationMs}ms`);
+            }
+            
+            let fillCol = "green";
+            if (code >= 500) fillCol = "red";
+            else if (code >= 400) fillCol = "orange";
+            else if (code === 204) fillCol = "yellow";
+
+            node.status({ fill: fillCol, shape: "dot", text: txtParts.join(" | ") });
+        };
+
+        this.returnLinkMessage = function(arg1, arg2) {
+            var msg = arg2 !== undefined ? arg2 : arg1;
+            var msgId = (arg2 !== undefined ? arg1 : msg._msgid) || msg._msgid;
+
             if (node.activeCalls[msgId]) {
                 clearTimeout(node.activeCalls[msgId].timeoutTimer);
                 var sendCb = node.activeCalls[msgId].send;
                 var doneCb = node.activeCalls[msgId].done;
+                
+                // 🟢 FIN DU CHRONO
+                var startTime = node.activeCalls[msgId].startTime;
+                let durationMs = null;
+                if (startTime) {
+                    durationMs = Date.now() - startTime;
+                }
+                const code = parseInt(msg.statusCode || 200, 10);
+                updateUiStatus(code, durationMs);
+                
+                // RESTAURATION DU CONTEXTE DE ROUTAGE D'ORIGINE
+                if (node.activeCalls[msgId].originalTopic !== undefined) {
+                    msg.topic = node.activeCalls[msgId].originalTopic;
+                } else {
+                    delete msg.topic;
+                }
+
+                if (node.activeCalls[msgId].originalUrl !== undefined) {
+                    msg.url = node.activeCalls[msgId].originalUrl;
+                } else {
+                    delete msg.url;
+                }
+
+                if (node.activeCalls[msgId].originalTarget !== undefined) {
+                    msg.target = node.activeCalls[msgId].originalTarget;
+                } else {
+                    delete msg.target;
+                }
+
                 delete node.activeCalls[msgId];
                 
-                // Transmet le message retourné au flux appelant
                 sendCb(msg);
                 if (doneCb) doneCb();
             }
         };
 
         this.on("input", function(msg, send, done) {
-            
-            // 1. Identification du/des nœuds cibles
             let targetNodes = [];
             
             if (node.linkType === "dynamic") {
-                // Routage dynamique basé sur msg.target
                 const targetName = msg.target || msg.url || msg.topic;
                 if (!targetName) {
+                    updateUiStatus(null, null, true, "Cible non spécifiée");
                     if (done) done("omni-link-call dynamique nécessite msg.target, msg.url ou msg.topic");
                     else node.error("omni-link-call dynamique nécessite msg.target, msg.url ou msg.topic", msg);
                     return;
                 }
                 
-                // Recherche exhaustive dans l'espace de travail Node-RED
                 RED.nodes.eachNode(function(n) {
                     if (n.type === "link in" || n.type === "omni-http") {
                         if (n.name === targetName) {
@@ -454,64 +495,80 @@ module.exports = function(RED) {
                 });
                 
                 if (targetNodes.length === 0) {
+                    updateUiStatus(null, null, true, "Cible introuvable");
                     node.warn(`[omni-link-call] Cible dynamique introuvable : ${targetName}`);
                     if (done) done();
                     return;
                 }
             } else {
-                // Routage statique basé sur les IDs liés dans l'éditeur UI
                 node.links.forEach(id => {
                     const activeNode = RED.nodes.getNode(id);
                     if (activeNode) targetNodes.push(activeNode);
                 });
                 
                 if (targetNodes.length === 0) {
+                    updateUiStatus(null, null, true, "Aucune cible configurée");
                     node.warn(`[omni-link-call] Aucun nœud cible statique configuré ou introuvable.`);
                     if (done) done();
                     return;
                 }
             }
 
-            // Si plusieurs cibles sont trouvées, on prend la première pour éviter la duplication des messages de retour
             const targetNode = targetNodes[0];
 
-            // 2. Traçabilité pour le retour (Injection de soi-même dans l'historique du msg)
+            // Sauvegarde du contexte
+            const originalTopic = msg.topic;
+            const originalUrl = msg.url;
+            const originalTarget = msg.target;
+
             if (!Array.isArray(msg._linkSource)) {
                 msg._linkSource = [];
             }
-            // On s'enregistre comme le point d'origine du sous-flux
-            msg._linkSource.push({ node: node.id });
+            
+            msg._linkSource.push({
+                id: node.id,
+                node: node.id,
+                msgId: msg._msgid
+            });
 
-            // 3. Mise en attente avec Timeout de sécurité
+            // 🟢 DÉBUT DU CHRONO
+            const startTime = Date.now();
+
             node.activeCalls[msg._msgid] = {
                 send: send,
                 done: done,
+                startTime: startTime,
+                originalTopic: originalTopic,
+                originalUrl: originalUrl,
+                originalTarget: originalTarget,
                 timeoutTimer: setTimeout(function() {
                     if (node.activeCalls[msg._msgid]) {
                         delete node.activeCalls[msg._msgid];
                         const err = `Timeout de ${node.timeout}s atteint lors de l'appel au sous-flux.`;
+                        updateUiStatus(null, null, true, "Timeout");
                         if (done) done(err);
                         else node.error(err, msg);
                     }
                 }, node.timeout * 1000)
             };
 
-            // 4. Déclenchement Asynchrone de la cible (Bascule vers le sous-flux)
             try {
-                // On déclenche l'événement "input" du nœud de réception
+                if (node.showStatus || node.showDuration) {
+                    node.status({ fill: "blue", shape: "ring", text: "Appel en cours..." });
+                }
                 targetNode.receive(msg);
             } catch (err) {
                 if (node.activeCalls[msg._msgid]) {
                     clearTimeout(node.activeCalls[msg._msgid].timeoutTimer);
                     delete node.activeCalls[msg._msgid];
                 }
+                updateUiStatus(null, null, true, "Erreur d'appel");
                 if (done) done(err);
                 else node.error("Erreur lors du déclenchement du Link In : " + err.message, msg);
             }
         });
 
         this.on("close", function() {
-            // Nettoyage de tous les timeouts actifs lors du redéploiement
             Object.keys(node.activeCalls).forEach(function(msgId) {
                 clearTimeout(node.activeCalls[msgId].timeoutTimer);
             });
