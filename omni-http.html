@@ -1,27 +1,39 @@
+<!-- ===================================================================== -->
+<!-- 1. DÉFINITION DU NŒUD OMNI-HTTP (ENTRÉE)                              -->
+<!-- ===================================================================== -->
 <script type="text/javascript">
     RED.nodes.registerType('omni-http',{
         category: 'network',
         color: '#e7e7ae',
         defaults: {
             name: {value:""},
-            globalProps: {value: []}, // 🟢 NOUVEAU : Propriétés applicables à l'ensemble du noeud
+            actAsLinkIn: {value: false},
+            globalProps: {value: []},
             routes: {value: [{method:"get", url:"", props: []}]}
         },
         inputs:0, outputs:1, icon: "white-globe.svg",
         label: function() { 
-            if (this.name) return this.name;
+            var prefix = this.actAsLinkIn ? "🔗 " : "";
+            if (this.name) return prefix + this.name;
             if (this.routes && this.routes.length > 0) {
                 var methods = [...new Set(this.routes.map(r => r.method.toUpperCase()))];
                 var routeLabel = this.routes.length > 1 ? this.routes.length + " routes" : this.routes[0].url;
-                return "[" + methods.join("/") + "] " + routeLabel;
+                return prefix + "[" + methods.join("/") + "] " + routeLabel;
             }
-            return "omni http in"; 
+            return prefix + "omni http in"; 
         },
         oneditprepare: function() {
             var root = RED.settings.httpNodeRoot || "/";
             if (root.slice(-1) !== "/") { root += "/"; }
 
-            // 🟢 FONCTION REUTILISABLE STYLE INJECT (ZÉRO BUG DE LARGEUR ET ENTIÈREMENT RESPONSIVE)
+            $("#node-input-actAsLinkIn").on("change", function() {
+                if ($(this).is(":checked")) {
+                    $("#omni-link-in-hint").slideDown(150);
+                } else {
+                    $("#omni-link-in-hint").slideUp(150);
+                }
+            });
+
             function buildPropertyRow(parentList, propData) {
                 var pData = propData || {key: "", val: "", type: "str"};
                 
@@ -67,7 +79,6 @@
                 }).appendTo(pRow);
             }
 
-            // --- 🟢 SECTION A : INITIALISATION DES VARIABLES GLOBALES ---
             $("#node-input-global-props-container").css('min-height','60px').editableList({
                 addItem: function(container, i, opt) {
                     buildPropertyRow(container, opt);
@@ -78,7 +89,6 @@
                 this.globalProps.forEach(p => $("#node-input-global-props-container").editableList('addItem', p));
             }
 
-            // --- SECTION B : INITIALISATION DE LA MATRICE DES ENDPOINTS ---
             $("#node-input-routes-container").css('min-height','250px').editableList({
                 addItem: function(container, i, opt) {
                     var route = opt.hasOwnProperty('method') ? opt : {method:"get", url:"", props: []};
@@ -112,7 +122,6 @@
                         style: "display: flex; flex-direction: column; gap: 0px; margin-top: 4px; padding-left: 12px; width: 100%; box-sizing: border-box;"
                     }).appendTo(mainContainer);
 
-                    // Recharger les variables spécifiques à la route
                     if (route.props && route.props.length > 0) {
                         route.props.forEach(p => buildPropertyRow(propsListContainer, p));
                     }
@@ -130,7 +139,6 @@
         oneditsave: function() {
             var node = this;
             
-            // 🟢 SAUVEGARDE DES VARIABLES GLOBALES
             node.globalProps = [];
             $("#node-input-global-props-container").editableList('items').each(function() {
                 var k = $(this).find(".node-input-prop-key").val().trim();
@@ -139,7 +147,6 @@
                 if (k) node.globalProps.push({key: k, val: v, type: t});
             });
 
-            // SAUVEGARDE DES ENDPOINTS
             node.routes = [];
             $("#node-input-routes-container").editableList('items').each(function() {
                 var method = $(this).find(".node-input-route-method").val();
@@ -163,12 +170,43 @@
             });
         }
     });
+
+    // =====================================================================
+    // 2. DÉFINITION DU NŒUD OMNI-REPLY (SORTIE HYBRIDE HTTP / LINK CALL)
+    // =====================================================================
+    RED.nodes.registerType('omni-reply',{
+        category: 'network',
+        color: '#e7e7ae',
+        defaults: {
+            name: {value: ""},
+            statusCode: {value: "", validate: RED.validators.regex(/^$|^[0-9]{3}$/)},
+            showStatus: {value: true}
+        },
+        inputs: 1,
+        outputs: 1,
+        align: "right",
+        icon: "white-globe.svg",
+        paletteLabel: "omni reply",
+        inputLabels: "http / link response",
+        outputLabels: ["clean msg (post-response)"],
+        label: function() {
+            return this.name || (this.statusCode ? "omni reply (" + this.statusCode + ")" : "omni reply");
+        }
+    });
 </script>
 
 <script type="text/html" data-template-name="omni-http">
     <div class="form-row">
         <label for="node-input-name"><i class="fa fa-tag"></i> Nom</label>
-        <input type="text" id="node-input-name" placeholder="Laisser vide pour calcul dynamique">
+        <input type="text" id="node-input-name" placeholder="Ex: /planning/assembly">
+    </div>
+    <div class="form-row" style="margin-bottom: 12px;">
+        <label for="node-input-actAsLinkIn"><i class="fa fa-link"></i> Link In</label>
+        <input type="checkbox" id="node-input-actAsLinkIn" style="display: inline-block; width: auto; vertical-align: top;">
+        <span style="margin-left: 6px; font-weight: 500;">Act as Link In (Accepter les appels <code>link call</code> internes)</span>
+        <div id="omni-link-in-hint" style="display: none; margin-top: 6px; padding: 8px 10px; background: var(--red-ui-secondary-background, #f7f7f7); border-left: 3px solid #3FADB5; font-size: 12px; color: #555;">
+            <b>Mode Link Call Dynamique :</b> Définissez <code>msg.target</code> sur le nom de ce nœud (ex: <code>"/planning/assembly"</code>) ou passez l'URL dans <code>msg.url</code>.
+        </div>
     </div>
     <div class="form-row node-input-global-props-container-row" style="margin-bottom: 24px;">
         <label style="width: 100%; font-weight: bold;"><i class="fa fa-globe"></i> Variables Globales (S'appliquent à tous les Endpoints)</label>
@@ -178,4 +216,24 @@
         <label style="width: 100%; font-weight: bold;"><i class="fa fa-list"></i> Matrice des Endpoints Spécifiques</label>
         <ol id="node-input-routes-container"></ol>
     </div>
+</script>
+
+<script type="text/html" data-template-name="omni-reply">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Nom</label>
+        <input type="text" id="node-input-name" placeholder="omni reply">
+    </div>
+    <div class="form-row">
+        <label for="node-input-statusCode"><i class="fa fa-code"></i> Status Code</label>
+        <input type="text" id="node-input-statusCode" placeholder="Laisser vide pour msg.statusCode (défaut: 200)" style="width: 70%;">
+    </div>
+    <div class="form-row">
+        <label for="node-input-showStatus"><i class="fa fa-eye"></i> Statut UI</label>
+        <input type="checkbox" id="node-input-showStatus" style="display: inline-block; width: auto; vertical-align: top;">
+        <span style="margin-left: 6px;">Afficher le code de statut et le temps de réponse sous le nœud</span>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="omni-reply">
+    <p>Termine proprement un cycle requête-réponse HTTP <b>ou</b> un appel interne <code>link call</code>, puis nettoie les références mémoire <code>msg.req</code> et <code>msg.res</code>.</p>
 </script>

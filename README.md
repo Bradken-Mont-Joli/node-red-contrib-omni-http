@@ -1,20 +1,21 @@
 # @bkmj/node-red-contrib-omni-http
 
-A professional Node-RED custom node that creates multiple HTTP endpoints triggering a single flow. It effectively transforms your API layout from a cluttered "spaghetti" view of separate `http in` nodes into a single, highly maintainable router matrix.
+A high-performance Node-RED suite providing **dual-mode REST routing and internal microservice dispatching**. It allows you to consolidate messy API endpoints into a single, clean router matrix (`omni-http`), and safely finalize execution cycles with a zero-leak hybrid response dispatcher (`omni-reply`).
 
 ## Features
-- **Consolidated Routing**: Manage multiple methods and paths (e.g., `GET /document`, `POST /document`, `DELETE /document/:_id`) inside a single node.
-- **Visual Integration**: Displays your system's `httpNodeRoot` prefix dynamically in the editor layout.
-- **Instance-Wide Global Properties**: Inject properties (`msg._model = "Document"`) globally to **all** endpoints in the node. Perfect for decoupling downstream subflows!
-- **Route-Specific Properties**: Inject custom variables per endpoint on arrival (acting like a built-in *Inject* node). Local properties automatically override global ones in case of key conflicts.
-- **Native Look & Feel**: Uses Node-RED's official `typedInput` widgets, offering full support for String, Number, Boolean, JSON, Flow, Global, Env, and Date types with a seamless responsive design.
+
+### `omni-http` (Inbound Router & Link Target)
+- **Multi-Route Matrix**: Host multiple HTTP verbs and paths (`GET /document`, `POST /document`, `DELETE /document/:_id`) inside one node.
+- **Link Call Target (`Act as Link In`)**: Call your Express endpoints internally from `link call` nodes in memory (0 ms latency, no TCP/TLS overhead, no local network requests).
+- **URL Parameter Extraction**: Automatically parses dynamic Express route parameters (`:_id`) and query strings even when called via `link call`.
+- **Instance-Wide & Route-Specific Variables**: Inject custom architecture tokens (`msg._model`, `msg._destroy`) globally or per endpoint.
+
+### `omni-reply` (Outbound Hybrid Dispatcher)
+- **Automatic Link Call Return**: Detects `msg._linkSource` and returns execution directly to the calling `link call` node in memory.
+- **Native Express HTTP Responder**: Handles status codes (including `204 No Content`), headers, cookies, JSON, binary buffers, and text.
+- **Anti-Crash Guard**: Protects against Node.js `[ERR_HTTP_HEADERS_SENT]` errors.
+- **Memory Leak Protection**: Strips `msg.req` and `msg.res` references on finish, emitting the clean `msg` for downstream asynchronous workflows.
 
 ```bash
 npm install @bkmj/node-red-contrib-omni-http
 ```
-
-## Usage Example: Decoupling Subflows
-Instead of configuring environment variables on separate subflow instances (like an api or model subflow), you can inject architecture tokens directly at the edge:
-1. In the Global Variables section, add `msg._model` = `"Document"` and `msg._destroy` = `false`.
-2. Map your CRUD endpoints below (`GET /entities/document`, `POST /entities/document`, etc.).
-3. Connect your shared subflow directly to the output. It will automatically receive the correct model context regardless of which HTTP endpoint was triggered.

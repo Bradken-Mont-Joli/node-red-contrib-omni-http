@@ -1,26 +1,95 @@
 const bodyParser = require("body-parser"); 
-const cors = require("cors"); // 🟢 1. Appel du module CORS (Garanti d'être présent car Node-RED en dépend)
+const cors = require("cors");
+const urlModule = require("url");
 
 module.exports = function(RED) {
     "use strict";
 
-    // Configuration des middlewares de parsing (limite à 10mb pour éviter les crashs)
     const jsonParser = bodyParser.json({ limit: "10mb" });
     const urlencParser = bodyParser.urlencoded({ limit: "10mb", extended: true });
 
+    // =========================================================================
+    // 🔍 UTILITAIRES : Matching d'URL Express & Normalisation pour Link Call
+    // =========================================================================
+    function matchExpressRoute(routePattern, actualPath) {
+        const cleanPattern = (routePattern || "").replace(/^\/+|\/+$/g, "");
+        const cleanActual = (actualPath || "").replace(/^\/+|\/+$/g, "");
+
+        const pSegments = cleanPattern ? cleanPattern.split("/") : [];
+        const aSegments = cleanActual ? cleanActual.split("/") : [];
+
+        if (pSegments.length !== aSegments.length) return null;
+
+        const params = {};
+        for (let i = 0; i < pSegments.length; i++) {
+            if (pSegments[i].startsWith(":")) {
+                const paramName = pSegments[i].substring(1);
+                params[paramName] = decodeURIComponent(aSegments[i]);
+            } else if (pSegments[i].toLowerCase() !== aSegments[i].toLowerCase()) {
+                return null;
+            }
+        }
+        return params;
+    }
+
+    function normalizeIncomingUrl(rawUrl) {
+        if (!rawUrl || typeof rawUrl !== "string") return { pathname: "", query: {} };
+        let cleaned = rawUrl.trim();
+        // Retire protocole + host éventuel
+        cleaned = cleaned.replace(/^https?:\/\/[^\/]+/i, "");
+        // Retire le préfixe httpNodeRoot (ex: /api) s'il est spécifié
+        const root = (RED.settings.httpNodeRoot || "/").replace(/\/+$/, "");
+        if (root && root !== "" && cleaned.toLowerCase().startsWith(root.toLowerCase() + "/")) {
+            cleaned = cleaned.substring(root.length);
+        }
+        const parsed = urlModule.parse(cleaned, true);
+        return {
+            pathname: parsed.pathname || "",
+            query: parsed.query ? Object.assign({}, parsed.query) : {}
+        };
+    }
+
+    // =========================================================================
+    // 🌐 NŒUD 1 : OMNI-HTTP (Entrée Multi-Routes + Act as Link In)
+    // =========================================================================
     function OmniHttpNode(config) {
         RED.nodes.createNode(this, config);
         var node = this;
         this.routes = config.routes || [];
-        this.globalProps = config.globalProps || []; 
+        this.globalProps = config.globalProps || [];
+        this.actAsLinkIn = Boolean(config.actAsLinkIn);
         var app = RED.httpNode;
 
-        // 🟢 2. Récupération et initialisation du gestionnaire CORS officiel de Node-RED
         var corsHandler = null;
         if (RED.settings.httpNodeCors) {
             corsHandler = cors(RED.settings.httpNodeCors);
         }
 
+        function injectProperties(msg, matchedRoute) {
+            if (node.globalProps && Array.isArray(node.globalProps)) {
+                node.globalProps.forEach(p => {
+                    try {
+                        let evaluatedVal = RED.util.evaluateNodeProperty(p.val, p.type, node, msg);
+                        RED.util.setMessageProperty(msg, p.key, evaluatedVal, true);
+                    } catch (err) {
+                        node.error("Erreur d'injection globale : " + err.message);
+                    }
+                });
+            }
+
+            if (matchedRoute && matchedRoute.props && Array.isArray(matchedRoute.props)) {
+                matchedRoute.props.forEach(p => {
+                    try {
+                        let evaluatedVal = RED.util.evaluateNodeProperty(p.val, p.type, node, msg);
+                        RED.util.setMessageProperty(msg, p.key, evaluatedVal, true);
+                    } catch (err) {
+                        node.error("Erreur d'injection spécifique : " + err.message);
+                    }
+                });
+            }
+        }
+
+        // 1. Enregistrement des routes Express HTTP
         this.routes.forEach(r => {
             const method = r.method ? r.method.toLowerCase() : null;
             const url = r.url;
@@ -36,39 +105,14 @@ module.exports = function(RED) {
                         method: req.method
                     };
 
-                    // Injections Globales
-                    if (node.globalProps && Array.isArray(node.globalProps)) {
-                        node.globalProps.forEach(p => {
-                            try {
-                                let evaluatedVal = RED.util.evaluateNodeProperty(p.val, p.type, node, msg);
-                                RED.util.setMessageProperty(msg, p.key, evaluatedVal, true);
-                            } catch (err) {
-                                node.error("Erreur d'injection globale : " + err.message);
-                            }
-                        });
-                    }
-
-                    // Injections Spécifiques
-                    if (r.props && Array.isArray(r.props)) {
-                        r.props.forEach(p => {
-                            try {
-                                let evaluatedVal = RED.util.evaluateNodeProperty(p.val, p.type, node, msg);
-                                RED.util.setMessageProperty(msg, p.key, evaluatedVal, true);
-                            } catch (err) {
-                                node.error("Erreur d'injection spécifique : " + err.message);
-                            }
-                        });
-                    }
-
+                    injectProperties(msg, r);
                     node.send(msg);
                 };
 
-                // 🟢 3. Enregistrement de la route OPTIONS pour le Preflight CORS du navigateur
                 if (corsHandler && typeof app.options === 'function') {
                     app.options(url, corsHandler);
                 }
 
-                // 🟢 4. Assemblage dynamique de la chaîne de middlewares
                 var routeMiddlewares = [];
                 if (corsHandler) {
                     routeMiddlewares.push(corsHandler);
@@ -77,19 +121,143 @@ module.exports = function(RED) {
                 routeMiddlewares.push(urlencParser);
                 routeMiddlewares.push(routeCallback);
 
-                // Application de la route avec tous ses intercepteurs
                 app[method](url, ...routeMiddlewares);
-                
                 r.registeredCallback = routeCallback;
             }
         });
+
+        // 2. Mode "Act as Link In" (Appels internes via Link Call)
+        if (this.actAsLinkIn) {
+            this.on("input", function(msg, send, done) {
+                try {
+                    const reqMethod = (msg.method || "GET").toUpperCase();
+                    const rawUrl = msg.url || msg.topic || node.name || (node.routes[0] && node.routes[0].url) || "";
+                    const { pathname, query } = normalizeIncomingUrl(rawUrl);
+
+                    let matchedRoute = null;
+                    let extractedParams = {};
+
+                    for (const r of node.routes) {
+                        if ((r.method || "get").toUpperCase() === reqMethod) {
+                            const params = matchExpressRoute(r.url, pathname);
+                            if (params !== null) {
+                                matchedRoute = r;
+                                extractedParams = params;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!matchedRoute) {
+                        matchedRoute = node.routes.find(r => (r.method || "get").toUpperCase() === reqMethod) || node.routes[0] || null;
+                    }
+
+                    let finalQuery = Object.assign({}, query);
+                    let finalBody = msg.payload;
+
+                    if (reqMethod === "GET" || reqMethod === "DELETE") {
+                        if (msg.payload && typeof msg.payload === "object" && !Array.isArray(msg.payload)) {
+                            finalQuery = Object.assign({}, msg.payload, finalQuery);
+                        }
+                        msg.payload = finalQuery;
+                    }
+
+                    msg.req = {
+                        method: reqMethod,
+                        url: pathname || rawUrl,
+                        query: finalQuery,
+                        params: Object.assign({}, msg.params || {}, extractedParams),
+                        body: finalBody,
+                        headers: msg.headers || {},
+                        _isInternalLinkCall: true
+                    };
+                    msg.method = reqMethod;
+                    msg.topic = msg.req.url;
+
+                    // Intercepteur virtuel pour fermeture automatique si routé vers un nœud http response classique
+                    let responseDispatched = false;
+                    const returnToLinkCaller = function(finalPayload) {
+                        if (responseDispatched) return;
+                        responseDispatched = true;
+
+                        if (finalPayload !== undefined) {
+                            msg.payload = finalPayload;
+                        }
+                        delete msg.req;
+                        delete msg.res;
+
+                        if (Array.isArray(msg._linkSource) && msg._linkSource.length > 0) {
+                            const linkInfo = msg._linkSource.pop();
+                            const callerNode = RED.nodes.getNode(linkInfo.node);
+                            if (callerNode && typeof callerNode.returnLinkMessage === "function") {
+                                callerNode.returnLinkMessage(msg);
+                            }
+                        }
+                    };
+
+                    const virtualRes = {
+                        headersSent: false,
+                        statusCode: 200,
+                        _headers: {},
+                        set: function(k, v) {
+                            if (typeof k === "object") Object.assign(this._headers, k);
+                            else this._headers[k] = v;
+                            return this;
+                        },
+                        setHeader: function(k, v) { this._headers[k] = v; return this; },
+                        getHeader: function(k) { return this._headers[k]; },
+                        status: function(code) {
+                            this.statusCode = code;
+                            msg.statusCode = code;
+                            return this;
+                        },
+                        sendStatus: function(code) {
+                            this.statusCode = code;
+                            msg.statusCode = code;
+                            this.headersSent = true;
+                            returnToLinkCaller(null);
+                            return this;
+                        },
+                        json: function(data) {
+                            this.headersSent = true;
+                            returnToLinkCaller(data);
+                            return this;
+                        },
+                        send: function(data) {
+                            this.headersSent = true;
+                            if (typeof data === "string") {
+                                try { data = JSON.parse(data); } catch (e) {}
+                            }
+                            returnToLinkCaller(data);
+                            return this;
+                        },
+                        end: function(data) {
+                            this.headersSent = true;
+                            returnToLinkCaller(data);
+                            return this;
+                        }
+                    };
+
+                    msg.res = {
+                        _res: virtualRes,
+                        headersSent: false
+                    };
+
+                    injectProperties(msg, matchedRoute);
+                    send(msg);
+                    if (done) done();
+                } catch (err) {
+                    if (done) done(err);
+                    else node.error(err, msg);
+                }
+            });
+        }
 
         this.on("close", function() {
             node.routes.forEach(r => {
                 const method = r.method ? r.method.toLowerCase() : null;
                 const url = r.url;
-                if (method && url) {
-                    // 🟢 5. Nettoyage de la route principale ET de la route OPTIONS du routeur Express
+                if (method && url && app && app._router && app._router.stack) {
                     for (var i = app._router.stack.length - 1; i >= 0; i--) {
                         var layer = app._router.stack[i];
                         if (layer.route && layer.route.path === url) {
@@ -103,4 +271,133 @@ module.exports = function(RED) {
         });
     }
     RED.nodes.registerType("omni-http", OmniHttpNode);
-}
+
+    // =========================================================================
+    // 📤 NŒUD 2 : OMNI-REPLY (Réponse Hybride HTTP + Link Call + Anti-Leak)
+    // =========================================================================
+    function OmniReplyNode(config) {
+        RED.nodes.createNode(this, config);
+        var node = this;
+        this.statusCode = config.statusCode;
+        this.headers = config.headers || {};
+        this.showStatus = config.showStatus !== false;
+
+        this.on("input", function(msg, send, done) {
+            try {
+                const code = parseInt(node.statusCode || msg.statusCode || 200, 10);
+                msg.statusCode = code;
+                const durationTxt = msg.apiCall?.time ? ` (${msg.apiCall.time})` : "";
+
+                // -----------------------------------------------------------------
+                // 🔗 CAS 1 : RETOUR DE LINK CALL INTERNE (Mémoire pure, 0 ms)
+                // -----------------------------------------------------------------
+                if (Array.isArray(msg._linkSource) && msg._linkSource.length > 0) {
+                    delete msg.req;
+                    delete msg.res;
+
+                    const linkInfo = msg._linkSource.pop();
+                    const callerNode = RED.nodes.getNode(linkInfo.node);
+
+                    if (callerNode && typeof callerNode.returnLinkMessage === "function") {
+                        if (node.showStatus) {
+                            node.status({
+                                fill: code >= 400 ? "red" : (code === 204 ? "yellow" : "blue"),
+                                shape: "dot",
+                                text: `Link ${code}${durationTxt}`
+                            });
+                        }
+                        callerNode.returnLinkMessage(msg);
+                    } else {
+                        node.warn(`[omni-reply] Nœud Link Call appelant introuvable (${linkInfo.node})`);
+                    }
+
+                    send(msg);
+                    if (done) done();
+                    return;
+                }
+
+                // -----------------------------------------------------------------
+                // 🌐 CAS 2 : RÉPONSE HTTP EXPRESS STANDARD
+                // -----------------------------------------------------------------
+                const res = msg.res?._res || msg.res;
+
+                if (msg.req && res && typeof res.status === "function") {
+                    // Protection native contre [ERR_HTTP_HEADERS_SENT]
+                    if (res.headersSent || msg.res.headersSent) {
+                        node.warn("[omni-reply] Headers already sent, dropping duplicate HTTP response.");
+                        delete msg.req;
+                        delete msg.res;
+                        if (done) done();
+                        return;
+                    }
+
+                    // 1. Application des en-têtes
+                    const combinedHeaders = Object.assign({}, node.headers, msg.headers || {});
+                    Object.keys(combinedHeaders).forEach(hKey => {
+                        if (combinedHeaders[hKey] !== undefined && combinedHeaders[hKey] !== null) {
+                            res.set(hKey, combinedHeaders[hKey]);
+                        }
+                    });
+
+                    // 2. Application des cookies
+                    if (msg.cookies && typeof msg.cookies === "object") {
+                        Object.keys(msg.cookies).forEach(cName => {
+                            const cVal = msg.cookies[cName];
+                            if (cVal === null || cVal === undefined) {
+                                res.clearCookie(cName);
+                            } else if (typeof cVal === "object" && "value" in cVal) {
+                                res.cookie(cName, cVal.value, cVal);
+                            } else {
+                                res.cookie(cName, cVal);
+                            }
+                        });
+                    }
+
+                    // 3. Émission selon le code et le type de payload
+                    res.status(code);
+
+                    if (code === 204 || msg.payload === null || msg.payload === undefined) {
+                        res.end();
+                    } else if (Buffer.isBuffer(msg.payload)) {
+                        res.send(msg.payload);
+                    } else if (typeof msg.payload === "object") {
+                        res.jsonp ? res.jsonp(msg.payload) : res.json(msg.payload);
+                    } else {
+                        res.send(String(msg.payload));
+                    }
+
+                    if (node.showStatus) {
+                        node.status({
+                            fill: code >= 500 ? "red" : (code >= 400 ? "orange" : (code === 204 ? "yellow" : "green")),
+                            shape: "dot",
+                            text: `${msg.req.method || 'HTTP'} ${code}${durationTxt}`
+                        });
+                    }
+
+                    // 4. Nettoyage mémoire anti-fuite de sockets
+                    delete msg.req;
+                    delete msg.res;
+
+                    send(msg);
+                    if (done) done();
+                    return;
+                }
+
+                // -----------------------------------------------------------------
+                // 🧹 CAS 3 : PAYLOAD NON HTTP (Message résiduel ou Test)
+                // -----------------------------------------------------------------
+                delete msg.req;
+                delete msg.res;
+                send(msg);
+                if (done) done();
+
+            } catch (err) {
+                delete msg.req;
+                delete msg.res;
+                if (done) done(err);
+                else node.error(err, msg);
+            }
+        });
+    }
+    RED.nodes.registerType("omni-reply", OmniReplyNode);
+};
