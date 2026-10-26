@@ -180,7 +180,8 @@
         defaults: {
             name: {value: ""},
             statusCode: {value: "", validate: RED.validators.regex(/^$|^[0-9]{3}$/)},
-            showStatus: {value: true}
+            showStatus: {value: true},
+            showDuration: {value: true}
         },
         inputs: 1,
         outputs: 1,
@@ -279,12 +280,18 @@
     </div>
     <div class="form-row">
         <label for="node-input-statusCode"><i class="fa fa-code"></i> Status Code</label>
-        <input type="text" id="node-input-statusCode" placeholder="Laisser vide pour msg.statusCode (défaut: 200)" style="width: 70%;">
+        <input type="text" id="node-input-statusCode" placeholder="Laisser vide (défaut: 200)" style="width: 70%;">
+    </div>
+    <hr>
+    <div class="form-row">
+        <label><i class="fa fa-eye"></i> Affichage</label>
+        <input type="checkbox" id="node-input-showStatus" style="display: inline-block; width: auto; vertical-align: top;">
+        <label for="node-input-showStatus" style="width: 70%;">Code de statut (ex: GET 200)</label>
     </div>
     <div class="form-row">
-        <label for="node-input-showStatus"><i class="fa fa-eye"></i> Statut UI</label>
-        <input type="checkbox" id="node-input-showStatus" style="display: inline-block; width: auto; vertical-align: top;">
-        <span style="margin-left: 6px;">Afficher le code de statut et le temps de réponse sous le nœud</span>
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-input-showDuration" style="display: inline-block; width: auto; vertical-align: top;">
+        <label for="node-input-showDuration" style="width: 70%;">Temps de réponse (ex: 45ms)</label>
     </div>
 </script>
 
@@ -294,14 +301,14 @@
         <input type="text" id="node-input-name" placeholder="omni link call">
     </div>
     <div class="form-row">
-        <label for="node-input-linkType"><i class="fa fa-random"></i> Type de lien</label>
+        <label for="node-input-linkType"><i class="fa fa-random"></i> Type</label>
         <select id="node-input-linkType" style="width: 70%;">
             <option value="dynamic">Dynamique (msg.target, msg.url, msg.topic)</option>
             <option value="static">Statique (Cible fixe)</option>
         </select>
     </div>
     <div class="form-row" id="node-row-static-links" style="display:none;">
-        <label for="node-input-static-target"><i class="fa fa-crosshairs"></i> Nœud Cible</label>
+        <label for="node-input-static-target"><i class="fa fa-crosshairs"></i> Cible</label>
         <select id="node-input-static-target" style="width: 70%;"></select>
     </div>
     <div class="form-row">
@@ -310,14 +317,14 @@
     </div>
     <hr>
     <div class="form-row">
-        <label for="node-input-showStatus"><i class="fa fa-eye"></i> Statut de retour</label>
+        <label><i class="fa fa-eye"></i> Affichage</label>
         <input type="checkbox" id="node-input-showStatus" style="display: inline-block; width: auto; vertical-align: top;">
-        <span style="margin-left: 6px;">Afficher le code de statut (ex: Code 200)</span>
+        <label for="node-input-showStatus" style="width: 70%;">Code de statut (ex: Code 200)</label>
     </div>
     <div class="form-row">
-        <label for="node-input-showDuration"><i class="fa fa-clock-o"></i> Temps d'exécution</label>
+        <label>&nbsp;</label>
         <input type="checkbox" id="node-input-showDuration" style="display: inline-block; width: auto; vertical-align: top;">
-        <span style="margin-left: 6px;">Afficher la durée d'exécution en millisecondes</span>
+        <label for="node-input-showDuration" style="width: 70%;">Durée d'exécution (ex: 45ms)</label>
     </div>
     <div class="form-tips" style="margin-top: 12px;">
         <b>Astuce :</b> En mode Dynamique, le nœud interroge tout l'espace de travail pour trouver le nœud <code>link in</code> ou <code>omni-http</code> correspondant à <code>msg.target</code>. En mode Statique, le lien est figé comme un nœud natif.
