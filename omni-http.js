@@ -400,4 +400,123 @@ module.exports = function(RED) {
         });
     }
     RED.nodes.registerType("omni-reply", OmniReplyNode);
+    
+    // =========================================================================
+    // 📞 NŒUD 3 : OMNI-LINK-CALL (Appelant Universel de sous-flux)
+    // =========================================================================
+    function OmniLinkCallNode(config) {
+        RED.nodes.createNode(this, config);
+        var node = this;
+        this.timeout = config.timeout || 30; // Timeout par défaut de 30 secondes
+        this.linkType = config.linkType || "static";
+        this.links = config.links || []; // IDs des nœuds cibles statiques
+
+        // Stockage des callbacks en attente (clés par _msgid)
+        node.activeCalls = {};
+
+        // Méthode publique exposée pour que omni-reply ou un nœud Return natif puisse refermer la boucle
+        this.returnLinkMessage = function(msg) {
+            var msgId = msg._msgid;
+            if (node.activeCalls[msgId]) {
+                clearTimeout(node.activeCalls[msgId].timeoutTimer);
+                var sendCb = node.activeCalls[msgId].send;
+                var doneCb = node.activeCalls[msgId].done;
+                delete node.activeCalls[msgId];
+                
+                // Transmet le message retourné au flux appelant
+                sendCb(msg);
+                if (doneCb) doneCb();
+            }
+        };
+
+        this.on("input", function(msg, send, done) {
+            
+            // 1. Identification du/des nœuds cibles
+            let targetNodes = [];
+            
+            if (node.linkType === "dynamic") {
+                // Routage dynamique basé sur msg.target
+                const targetName = msg.target || msg.url || msg.topic;
+                if (!targetName) {
+                    if (done) done("omni-link-call dynamique nécessite msg.target, msg.url ou msg.topic");
+                    else node.error("omni-link-call dynamique nécessite msg.target, msg.url ou msg.topic", msg);
+                    return;
+                }
+                
+                // Recherche exhaustive dans l'espace de travail Node-RED
+                RED.nodes.eachNode(function(n) {
+                    if (n.type === "link in" || n.type === "omni-http") {
+                        if (n.name === targetName) {
+                            const activeNode = RED.nodes.getNode(n.id);
+                            if (activeNode) targetNodes.push(activeNode);
+                        }
+                    }
+                });
+                
+                if (targetNodes.length === 0) {
+                    node.warn(`[omni-link-call] Cible dynamique introuvable : ${targetName}`);
+                    if (done) done();
+                    return;
+                }
+            } else {
+                // Routage statique basé sur les IDs liés dans l'éditeur UI
+                node.links.forEach(id => {
+                    const activeNode = RED.nodes.getNode(id);
+                    if (activeNode) targetNodes.push(activeNode);
+                });
+                
+                if (targetNodes.length === 0) {
+                    node.warn(`[omni-link-call] Aucun nœud cible statique configuré ou introuvable.`);
+                    if (done) done();
+                    return;
+                }
+            }
+
+            // Si plusieurs cibles sont trouvées, on prend la première pour éviter la duplication des messages de retour
+            const targetNode = targetNodes[0];
+
+            // 2. Traçabilité pour le retour (Injection de soi-même dans l'historique du msg)
+            if (!Array.isArray(msg._linkSource)) {
+                msg._linkSource = [];
+            }
+            // On s'enregistre comme le point d'origine du sous-flux
+            msg._linkSource.push({ node: node.id });
+
+            // 3. Mise en attente avec Timeout de sécurité
+            node.activeCalls[msg._msgid] = {
+                send: send,
+                done: done,
+                timeoutTimer: setTimeout(function() {
+                    if (node.activeCalls[msg._msgid]) {
+                        delete node.activeCalls[msg._msgid];
+                        const err = `Timeout de ${node.timeout}s atteint lors de l'appel au sous-flux.`;
+                        if (done) done(err);
+                        else node.error(err, msg);
+                    }
+                }, node.timeout * 1000)
+            };
+
+            // 4. Déclenchement Asynchrone de la cible (Bascule vers le sous-flux)
+            try {
+                // On déclenche l'événement "input" du nœud de réception
+                targetNode.receive(msg);
+            } catch (err) {
+                if (node.activeCalls[msg._msgid]) {
+                    clearTimeout(node.activeCalls[msg._msgid].timeoutTimer);
+                    delete node.activeCalls[msg._msgid];
+                }
+                if (done) done(err);
+                else node.error("Erreur lors du déclenchement du Link In : " + err.message, msg);
+            }
+        });
+
+        this.on("close", function() {
+            // Nettoyage de tous les timeouts actifs lors du redéploiement
+            Object.keys(node.activeCalls).forEach(function(msgId) {
+                clearTimeout(node.activeCalls[msgId].timeoutTimer);
+            });
+            node.activeCalls = {};
+        });
+    }
+    RED.nodes.registerType("omni-link-call", OmniLinkCallNode);
 };

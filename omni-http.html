@@ -193,6 +193,27 @@
             return this.name || (this.statusCode ? "omni reply (" + this.statusCode + ")" : "omni reply");
         }
     });
+
+    // =====================================================================
+    // 3. DÉFINITION DU NŒUD OMNI-LINK-CALL (APPELANT)
+    // =====================================================================
+    RED.nodes.registerType('omni-link-call',{
+        category: 'network',
+        color: '#e7e7ae',
+        defaults: {
+            name: {value: ""},
+            links: {type:"[]"}, // Pour l'enregistrement statique optionnel si besoin futur
+            linkType: {value: "dynamic"},
+            timeout: {value: 30, validate: RED.validators.number()}
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: "link-call.svg",
+        paletteLabel: "omni link call",
+        label: function() {
+            return this.name || "omni link call";
+        }
+    });
 </script>
 
 <script type="text/html" data-template-name="omni-http">
@@ -234,6 +255,33 @@
     </div>
 </script>
 
+<script type="text/html" data-template-name="omni-link-call">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Nom</label>
+        <input type="text" id="node-input-name" placeholder="omni link call">
+    </div>
+    <div class="form-row">
+        <label for="node-input-linkType"><i class="fa fa-random"></i> Type de lien</label>
+        <select id="node-input-linkType">
+            <option value="dynamic">Dynamique (msg.target, msg.url, msg.topic)</option>
+        </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-timeout"><i class="fa fa-clock-o"></i> Timeout (s)</label>
+        <input type="text" id="node-input-timeout" placeholder="30">
+    </div>
+    <div class="form-tips">
+        <b>Astuce :</b> Ce nœud interroge tout l'espace de travail. Il déclenchera l'événement de réception du nœud <code>link in</code> ou <code>omni-http</code> dont le nom correspond à la valeur définie dans <code>msg.target</code>.
+    </div>
+</script>
+
 <script type="text/html" data-help-name="omni-reply">
     <p>Termine proprement un cycle requête-réponse HTTP <b>ou</b> un appel interne <code>link call</code>, puis nettoie les références mémoire <code>msg.req</code> et <code>msg.res</code>.</p>
+</script>
+
+<script type="text/html" data-help-name="omni-link-call">
+    <p>Déclenche de manière asynchrone l'exécution d'un autre flux en mémoire et attend son retour (via un nœud <code>omni-reply</code> ou un nœud retour natif).</p>
+    <p>Ce nœud personnalise le concept du `link call` natif en retirant les restrictions de type, lui permettant de cibler à la fois les nœuds `link in` classiques ET vos nœuds `omni-http` configurés comme points d'entrée internes.</p>
+    <h3>Routage</h3>
+    <p>Définissez simplement le nom exact du nœud cible (ex: <code>"/api/process"</code>) dans <code>msg.target</code> avant de passer par ce nœud.</p>
 </script>
